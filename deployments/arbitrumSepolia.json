@@ -1,0 +1,18 @@
+{
+  "network": "arbitrumSepolia",
+  "chainId": 421614,
+  "deployBlock": 259280213,
+  "deployedAt": "2026-04-13T18:21:39.186Z",
+  "contracts": {
+    "PriceOracle": "0x847DA272D6Ec47206e23C17EdBb84859dAB2EbE4",
+    "ShadowFundVault": "0x46012F653755Da1B082Ab0161821b8A7e383e7E2"
+  },
+  "inputs": {
+    "cUSDC": "0x1ccec6bc60db15e4055d43dc2531bb7d4e5b808e",
+    "chainlinkFeeds": {
+      "ETH_USD": "0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165",
+      "BTC_USD": "0x56a43EB56Da12C0dc1D972ACb089c06a5dEF8e69",
+      "LINK_USD": "0x0FB99723Aee6f420beAD13e6bBB79b7E6F034298"
+    }
+  }
+}
