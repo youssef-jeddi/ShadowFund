@@ -13,8 +13,8 @@ import { useClaimRedemption } from "@/hooks/use-claim-redemption";
 import { truncateAddress } from "@/lib/utils";
 import Link from "next/link";
 
-const ASSET_LABELS = ["ETH", "BTC", "LINK", "USDC"];
-const ASSET_COLORS = ["#6366f1", "#f59e0b", "#3b82f6", "#10b981"];
+const ASSET_LABELS = ["WETH", "USDC"];
+const ASSET_COLORS = ["#6366f1", "#10b981"];
 
 interface FundDetailContentProps {
   fundId: bigint;
@@ -132,22 +132,23 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
           <CardContent className="px-5 py-4">
             <div className="flex flex-col gap-2">
               {[
-                { label: "ETH",  val: fund.revealedStrategy.eth,  color: ASSET_COLORS[0] },
-                { label: "BTC",  val: fund.revealedStrategy.btc,  color: ASSET_COLORS[1] },
-                { label: "LINK", val: fund.revealedStrategy.link, color: ASSET_COLORS[2] },
-                { label: "USDC", val: fund.revealedStrategy.usdc, color: ASSET_COLORS[3] },
-              ].map(({ label, val, color }) => (
-                <div key={label} className="flex items-center gap-3">
-                  <span className="w-10 text-xs font-medium" style={{ color }}>{label}</span>
-                  <div className="flex-1 rounded-full bg-surface" style={{ height: 8 }}>
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${val}%`, background: color, opacity: 0.8 }}
-                    />
+                { label: ASSET_LABELS[0], bps: fund.revealedStrategy.wethBps, color: ASSET_COLORS[0] },
+                { label: ASSET_LABELS[1], bps: fund.revealedStrategy.usdcBps, color: ASSET_COLORS[1] },
+              ].map(({ label, bps, color }) => {
+                const pct = (bps / 100).toFixed(0);
+                return (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className="w-10 text-xs font-medium" style={{ color }}>{label}</span>
+                    <div className="flex-1 rounded-full bg-surface" style={{ height: 8 }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, background: color, opacity: 0.8 }}
+                      />
+                    </div>
+                    <span className="w-10 text-right text-xs font-bold text-text-body">{pct}%</span>
                   </div>
-                  <span className="w-10 text-right text-xs font-bold text-text-body">{val}%</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {isManager && (
               <div className="mt-4">
@@ -195,9 +196,6 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
               </div>
             </div>
             {decryptError && <p className="mt-1 text-xs text-red-400">{decryptError}</p>}
-            {position.hasPendingDeposit && (
-              <p className="mt-2 text-xs text-amber-400">You have a pending deposit awaiting processing by the manager.</p>
-            )}
             {position.hasPendingRedeem && (
               <p className="mt-2 text-xs text-blue-400">You have a pending redeem request awaiting processing.</p>
             )}
@@ -267,7 +265,7 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
                 </Button>
                 {depositHook.error && <p className="text-sm text-red-400">{depositHook.error}</p>}
                 {depositHook.step === "confirmed" && (
-                  <p className="text-sm text-emerald-400">Deposit requested! Waiting for manager to process.</p>
+                  <p className="text-sm text-emerald-400">Deposited! Shares minted and credited to your address.</p>
                 )}
               </div>
             )}
@@ -304,7 +302,7 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
                 </Button>
                 {redeemHook.error && <p className="text-sm text-red-400">{redeemHook.error}</p>}
                 {redeemHook.step === "confirmed" && (
-                  <p className="text-sm text-emerald-400">Redeem requested! Waiting for manager to process.</p>
+                  <p className="text-sm text-emerald-400">Redeem submitted! If the fund had no capital in Aave, it settled atomically — otherwise the manager will process it after pulling liquidity.</p>
                 )}
               </div>
             )}

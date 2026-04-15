@@ -11,10 +11,8 @@ import { useQueryClient } from "@tanstack/react-query";
 export type RevealStrategyStep = "idle" | "writing" | "confirmed" | "error";
 
 export interface PlaintextStrategy {
-  eth: number;
-  btc: number;
-  link: number;
-  usdc: number;
+  /** WETH allocation in basis points (0-10000). USDC = 10000 - wethBps. */
+  wethBps: number;
 }
 
 interface UseRevealStrategyResult {
@@ -49,6 +47,13 @@ export function useRevealStrategy(): UseRevealStrategyResult {
         return false;
       }
 
+      const { wethBps } = strategy;
+      if (!Number.isInteger(wethBps) || wethBps < 0 || wethBps > 10_000) {
+        setError(`wethBps must be an integer in [0, 10000] (got ${wethBps})`);
+        setStep("error");
+        return false;
+      }
+
       try {
         const gasOverrides = await estimateGasOverrides(publicClient);
         setStep("writing");
@@ -58,13 +63,7 @@ export function useRevealStrategy(): UseRevealStrategyResult {
           address: (CONTRACTS as Record<string, `0x${string}`>).SHADOW_FUND_VAULT,
           abi: shadowFundVaultAbi,
           functionName: "revealStrategy",
-          args: [
-            fundId,
-            BigInt(strategy.eth),
-            BigInt(strategy.btc),
-            BigInt(strategy.link),
-            BigInt(strategy.usdc),
-          ],
+          args: [fundId, BigInt(wethBps)],
           ...gasOverrides,
         });
 

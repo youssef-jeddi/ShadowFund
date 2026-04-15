@@ -14,7 +14,6 @@ export interface MyPosition {
   shareHandle: `0x${string}`;
   /** Decrypted share balance as a formatted string (e.g. "100.00") */
   decryptedBalance: string | null;
-  hasPendingDeposit: boolean;
   hasPendingRedeem: boolean;
   /** True when processRedeem has been called and user can claim their cUSDC */
   isClaimable: boolean;
@@ -52,12 +51,6 @@ export function useMyPosition(fundId: bigint | undefined) {
       {
         address: vaultAddress as `0x${string}`,
         abi: shadowFundVaultAbi,
-        functionName: "hasPendingDeposit",
-        args: [fundId ?? 0n, address ?? "0x0000000000000000000000000000000000000000"],
-      },
-      {
-        address: vaultAddress as `0x${string}`,
-        abi: shadowFundVaultAbi,
         functionName: "hasPendingRedeem",
         args: [fundId ?? 0n, address ?? "0x0000000000000000000000000000000000000000"],
       },
@@ -75,9 +68,8 @@ export function useMyPosition(fundId: bigint | undefined) {
   });
 
   const shareHandle = (data?.[0]?.result ?? ZERO_HANDLE) as `0x${string}`;
-  const hasPendingDeposit = (data?.[1]?.result ?? false) as boolean;
-  const hasPendingRedeem  = (data?.[2]?.result ?? false) as boolean;
-  const isClaimableResult = (data?.[3]?.result ?? false) as boolean;
+  const hasPendingRedeem  = (data?.[1]?.result ?? false) as boolean;
+  const isClaimableResult = (data?.[2]?.result ?? false) as boolean;
 
   /** Trigger a client-side decryption of the share balance via Nox JS SDK. */
   const decryptBalance = useCallback(async () => {
@@ -104,7 +96,6 @@ export function useMyPosition(fundId: bigint | undefined) {
     fundId: fundId ?? 0n,
     shareHandle,
     decryptedBalance,
-    hasPendingDeposit,
     hasPendingRedeem,
     isClaimable: isClaimableResult,
   };

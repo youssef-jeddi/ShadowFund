@@ -12,8 +12,8 @@ import { useChainGptAnalysis } from "@/hooks/use-chaingpt-analysis";
 import { CONTRACTS } from "@/lib/contracts";
 import Link from "next/link";
 
-const ASSET_LABELS = ["ETH", "BTC", "LINK", "USDC"];
-const ASSET_COLORS = ["#6366f1", "#f59e0b", "#3b82f6", "#10b981"];
+const ASSET_LABELS = ["WETH", "USDC"];
+const ASSET_COLORS = ["#6366f1", "#10b981"];
 
 interface RevealPageContentProps {
   fundId: bigint;
@@ -30,11 +30,8 @@ export function RevealPageContent({ fundId }: RevealPageContentProps) {
   const [typedName, setTypedName] = useState("");
   const [countdown, setCountdown] = useState<number | null>(null);
 
-  // Plaintext strategy inputs (manager knows these, they encrypted them)
-  const [eth, setEth] = useState(25);
-  const [btc, setBtc] = useState(25);
-  const [link, setLink] = useState(25);
-  const [usdc, setUsdc] = useState(25);
+  // Plaintext strategy input (manager knows this, they encrypted it)
+  const [wethBps, setWethBps] = useState(5000);
 
   // Countdown timer
   useEffect(() => {
@@ -47,29 +44,21 @@ export function RevealPageContent({ fundId }: RevealPageContentProps) {
 
   const handleReveal = useCallback(async () => {
     if (!fund) return;
-    const ok = await revealHook.revealStrategy(fundId, { eth, btc, link, usdc });
+    const ok = await revealHook.revealStrategy(fundId, { wethBps });
     if (ok) await refetch();
-  }, [revealHook, fundId, eth, btc, link, usdc, fund, refetch]);
+  }, [revealHook, fundId, wethBps, fund, refetch]);
 
   const handleAnalyze = useCallback(() => {
-    if (!fund?.revealedStrategy || fund.startPrices === null) return;
-    const [startEth, startBtc, startLink, startUsdc] = fund.startPrices;
+    if (!fund?.revealedStrategy || fund.startPriceEth === null) return;
     analysisHook.analyze({
       fundName: fund.name,
-      strategy: fund.revealedStrategy,
-      startPrices: {
-        eth:  Number(startEth)  / 1e8,
-        btc:  Number(startBtc)  / 1e8,
-        link: Number(startLink) / 1e8,
-        usdc: Number(startUsdc) / 1e8,
-      },
-      currentPrices: {
-        eth:  Number(startEth)  / 1e8, // front-end fetches live prices from /api/prices; simplified here
-        btc:  Number(startBtc)  / 1e8,
-        link: Number(startLink) / 1e8,
-        usdc: 1,
-      },
+      strategy: { wethBps: fund.revealedStrategy.wethBps },
+      startPriceEth: Number(fund.startPriceEth) / 1e8,
+      currentPriceEth: Number(fund.startPriceEth) / 1e8, // simplified — live price fetch handled elsewhere
       performanceScoreBps: fund.performanceScoreBps ?? 0,
+      aaveApyBps: 0,
+      realYield: 0,
+      principal: 0,
       fundAgedays: Math.floor(
         (Date.now() / 1000 - Number(fund.createdAt)) / 86400,
       ),
@@ -121,8 +110,7 @@ export function RevealPageContent({ fundId }: RevealPageContentProps) {
     );
   }
 
-  const allPcts = [eth, btc, link, usdc];
-  const total = allPcts.reduce((a, b) => a + b, 0);
+  const wethBpsValid = Number.isInteger(wethBps) && wethBps >= 0 && wethBps <= 10_000;
   const nameMatches = typedName === fund.name;
   const canReveal = understood && nameMatches && countdown === 0;
 
@@ -151,28 +139,31 @@ export function RevealPageContent({ fundId }: RevealPageContentProps) {
             </CardHeader>
             <CardContent className="px-5 py-4">
               {fund.revealedStrategy && [
-                { label: "ETH",  val: fund.revealedStrategy.eth  },
-                { label: "BTC",  val: fund.revealedStrategy.btc  },
-                { label: "LINK", val: fund.revealedStrategy.link },
-                { label: "USDC", val: fund.revealedStrategy.usdc },
-              ].map(({ label, val }, i) => (
-                <div key={label} className="mb-3 flex items-center gap-3">
-                  <span className="w-12 text-xs font-medium sf-reveal-animate" style={{ color: ASSET_COLORS[i] }}>
-                    {label}
-                  </span>
-                  <div className="flex-1 rounded-full bg-surface" style={{ height: 10 }}>
-                    <div
-                      className="h-full rounded-full sf-reveal-animate"
-                      style={{
-                        width: `${val}%`,
-                        background: ASSET_COLORS[i],
-                        animationDelay: `${i * 150}ms`,
-                      }}
-                    />
+                { label: ASSET_LABELS[0], bps: fund.revealedStrategy.wethBps },
+                { label: ASSET_LABELS[1], bps: fund.revealedStrategy.usdcBps },
+              ].map(({ label, bps }, i) => {
+                const pct = bps / 100;
+                return (
+                  <div key={label} className="mb-3 flex items-center gap-3">
+                    <span className="w-12 text-xs font-medium sf-reveal-animate" style={{ color: ASSET_COLORS[i] }}>
+                      {label}
+                    </span>
+                    <div className="flex-1 rounded-full bg-surface" style={{ height: 10 }}>
+                      <div
+                        className="h-full rounded-full sf-reveal-animate"
+                        style={{
+                          width: `${pct}%`,
+                          background: ASSET_COLORS[i],
+                          animationDelay: `${i * 150}ms`,
+                        }}
+                      />
+                    </div>
+                    <span className="w-10 text-right text-sm font-bold text-text-body">
+                      {pct.toFixed(0)}%
+                    </span>
                   </div>
-                  <span className="w-10 text-right text-sm font-bold text-text-body">{val}%</span>
-                </div>
-              ))}
+                );
+              })}
               {fund.performanceScoreBps !== null && (
                 <div className="mt-3 flex items-center justify-between rounded-xl px-3 py-2"
                   style={{ background: "var(--sf-violet-subtle)", border: "1px solid var(--sf-violet-border)" }}>
@@ -216,38 +207,35 @@ export function RevealPageContent({ fundId }: RevealPageContentProps) {
           <Card className="rounded-2xl border" style={{ borderColor: "var(--sf-violet-border)" }}>
             <CardHeader className="px-5 pt-4 pb-0">
               <h3 className="text-sm font-semibold text-text-heading">
-                Enter your allocation percentages
+                Enter your WETH allocation (bps)
               </h3>
               <p className="text-xs text-text-muted mt-1">
-                You encrypted these — enter the same values (must sum to 100).
+                You encrypted this value when setting the strategy — enter the exact
+                same bps (0-10000). USDC allocation is implicit ({10_000 - wethBps} bps).
               </p>
             </CardHeader>
             <CardContent className="px-5 py-4">
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "ETH %", val: eth, set: setEth },
-                  { label: "BTC %", val: btc, set: setBtc },
-                  { label: "LINK %", val: link, set: setLink },
-                  { label: "USDC %", val: usdc, set: setUsdc },
-                ].map(({ label, val, set }, i) => (
-                  <div key={label} className="flex flex-col gap-1">
-                    <label className="text-xs text-text-muted">{label}</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={val}
-                      onChange={(e) => set(Number(e.target.value))}
-                      className="rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-violet-400"
-                      style={{ borderColor: "var(--sf-card-border)", borderLeftColor: ASSET_COLORS[i] }}
-                    />
-                  </div>
-                ))}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-text-muted">WETH bps (0-10000)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={10_000}
+                  step={100}
+                  value={wethBps}
+                  onChange={(e) => setWethBps(Number(e.target.value))}
+                  className="rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+                  style={{ borderColor: "var(--sf-card-border)", borderLeftColor: ASSET_COLORS[0] }}
+                />
               </div>
-              <div className={`mt-3 rounded-xl px-3 py-2 text-sm font-medium text-center ${
-                total === 100 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-              }`}>
-                Total: {total}% {total === 100 ? "✓" : `(${100 - total > 0 ? "+" : ""}${100 - total} off)`}
+              <div
+                className={`mt-3 rounded-xl px-3 py-2 text-sm font-medium text-center ${
+                  wethBpsValid ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                }`}
+              >
+                {wethBpsValid
+                  ? `WETH ${(wethBps / 100).toFixed(0)}% / USDC ${((10_000 - wethBps) / 100).toFixed(0)}% ✓`
+                  : "wethBps must be an integer in [0, 10000]"}
               </div>
             </CardContent>
           </Card>
@@ -291,7 +279,7 @@ export function RevealPageContent({ fundId }: RevealPageContentProps) {
                   background: canReveal ? "var(--sf-violet)" : undefined,
                   color: canReveal ? "#fff" : undefined,
                 }}
-                disabled={!understood || !nameMatches || total !== 100 || revealHook.step === "writing"}
+                disabled={!understood || !nameMatches || !wethBpsValid || revealHook.step === "writing"}
                 onClick={() => {
                   if (countdown === null) {
                     setCountdown(5);

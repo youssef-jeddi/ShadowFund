@@ -19,10 +19,13 @@ interface UseChainGptAnalysisResult {
 
 export interface AnalyzeParams {
   fundName: string;
-  strategy: { eth: number; btc: number; link: number; usdc: number };
-  startPrices: { eth: number; btc: number; link: number; usdc: number };
-  currentPrices: { eth: number; btc: number; link: number; usdc: number };
+  strategy: { wethBps: number };
+  startPriceEth: number;
+  currentPriceEth: number;
   performanceScoreBps: number;
+  aaveApyBps: number;
+  realYield: number;
+  principal: number;
   fundAgedays: number;
 }
 

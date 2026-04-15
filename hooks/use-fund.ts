@@ -7,13 +7,11 @@ import type { FundMetadata } from "@/hooks/use-fund-list";
 
 export interface FundDetail extends FundMetadata {
   revealedStrategy: {
-    eth: number;
-    btc: number;
-    link: number;
-    usdc: number;
+    wethBps: number;
+    usdcBps: number;
   } | null;
   performanceScoreBps: number | null;
-  startPrices: [bigint, bigint, bigint, bigint] | null;
+  startPriceEth: bigint | null;
 }
 
 const vaultAddress = ("SHADOW_FUND_VAULT" in CONTRACTS)
@@ -50,7 +48,7 @@ export function useFund(fundId: bigint | undefined) {
       {
         address: vaultAddress as `0x${string}`,
         abi: shadowFundVaultAbi,
-        functionName: "getStartPrices",
+        functionName: "getStartPriceEth",
         args: [fundId ?? 0n],
       },
     ],
@@ -86,12 +84,10 @@ export function useFund(fundId: bigint | undefined) {
   const revealedStrategy =
     revealed && stratResult.status === "success" && stratResult.result
       ? (() => {
-          const [eth, btc, link, usdc] = stratResult.result as [bigint, bigint, bigint, bigint];
+          const [wethBps, usdcBps] = stratResult.result as [bigint, bigint];
           return {
-            eth:  Number(eth),
-            btc:  Number(btc),
-            link: Number(link),
-            usdc: Number(usdc),
+            wethBps: Number(wethBps),
+            usdcBps: Number(usdcBps),
           };
         })()
       : null;
@@ -101,9 +97,9 @@ export function useFund(fundId: bigint | undefined) {
       ? Number(scoreResult.result as bigint)
       : null;
 
-  const startPrices =
-    startPriceResult.status === "success" && startPriceResult.result
-      ? (startPriceResult.result as [bigint, bigint, bigint, bigint])
+  const startPriceEth =
+    startPriceResult.status === "success" && startPriceResult.result !== undefined
+      ? (startPriceResult.result as bigint)
       : null;
 
   const fund: FundDetail = {
@@ -119,7 +115,7 @@ export function useFund(fundId: bigint | undefined) {
     shareFacade,
     revealedStrategy,
     performanceScoreBps,
-    startPrices,
+    startPriceEth,
   };
 
   return { fund, isLoading, refetch };

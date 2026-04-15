@@ -3,55 +3,56 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * POST /api/analyze-strategy
  *
- * Accepts a revealed fund strategy + price data and returns a ChainGPT-powered
- * natural language analysis of the fund's performance.
+ * Accepts a revealed 2-asset (WETH/USDC) fund strategy + Aave yield data and
+ * returns a ChainGPT-powered natural language analysis of the fund's performance
+ * across two dimensions:
+ *   (a) real yield captured from Aave v3 USDC supply
+ *   (b) allocation alpha — the revealed WETH bps vs a 50/50 benchmark over the
+ *       period, using Chainlink ETH/USD delta
  *
- * Body:
+ * Body (see AnalyzeParams in hooks/use-chaingpt-analysis.ts):
  *   {
  *     fundName: string,
- *     strategy: { eth: number, btc: number, link: number, usdc: number },
- *     startPrices: { eth, btc, link, usdc } (in USD),
- *     currentPrices: { eth, btc, link, usdc } (in USD),
- *     performanceScoreBps: number,
+ *     strategy: { wethBps: number },            // 0-10000
+ *     startPriceEth: number,                    // USD
+ *     currentPriceEth: number,                  // USD
+ *     performanceScoreBps: number,              // allocation alpha in bps
+ *     aaveApyBps: number,                       // current Aave USDC supply APY
+ *     realYield: number,                        // USDC units (6-decimals plaintext)
+ *     principal: number,                        // USDC units currently supplied
  *     fundAgedays: number,
- *   }
- *
- * Response (StrategyAnalysis):
- *   {
- *     summary: string,
- *     assetBreakdown: string,
- *     performanceInsights: string,
- *     riskAssessment: string,
- *     raw: string,
  *   }
  */
 
 const CHAINGPT_API_URL = "https://api.chaingpt.org/chat/stream";
 const CHAINGPT_API_KEY = process.env.CHAINGPT_API_KEY ?? "";
 
+interface AnalyzeBody {
+  fundName: string;
+  strategy: { wethBps: number };
+  startPriceEth: number;
+  currentPriceEth: number;
+  performanceScoreBps: number;
+  aaveApyBps: number;
+  realYield: number;
+  principal: number;
+  fundAgedays: number;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as {
-      fundName: string;
-      strategy: { eth: number; btc: number; link: number; usdc: number };
-      startPrices: { eth: number; btc: number; link: number; usdc: number };
-      currentPrices: { eth: number; btc: number; link: number; usdc: number };
-      performanceScoreBps: number;
-      fundAgedays: number;
-    };
-
+    const body = (await req.json()) as AnalyzeBody;
     const prompt = buildPrompt(body);
 
     if (!CHAINGPT_API_KEY) {
       return NextResponse.json(getFallbackAnalysis(body), { status: 200 });
     }
 
-    // Call ChainGPT chat API
     const cgRes = await fetch(CHAINGPT_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${CHAINGPT_API_KEY}`,
+        Authorization: `Bearer ${CHAINGPT_API_KEY}`,
       },
       body: JSON.stringify({
         model: "chaingpt",
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
           {
             role: "system",
             content:
-              "You are a DeFi fund analyst. Analyze the provided confidential fund strategy and return a JSON object with keys: summary, assetBreakdown, performanceInsights, riskAssessment. Each value is a 2-3 sentence plain text paragraph. Respond ONLY with valid JSON.",
+              "You are a DeFi fund analyst. Analyze a 2-asset confidential fund (WETH + USDC) that supplies its productive capital to Aave v3 for real yield and scores the revealed WETH allocation against a 50/50 benchmark. Return a JSON object with keys: summary, assetBreakdown, performanceInsights, riskAssessment. Each value is 2-3 sentences. Respond ONLY with valid JSON.",
           },
           { role: "user", content: prompt },
         ],
@@ -74,12 +75,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(getFallbackAnalysis(body), { status: 200 });
     }
 
-    // Parse response — ChainGPT may return streaming or JSON
     let rawText: string;
     const contentType = cgRes.headers.get("content-type") ?? "";
 
     if (contentType.includes("text/event-stream")) {
-      // SSE streaming — collect all data chunks
       const reader = cgRes.body?.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
@@ -97,7 +96,10 @@ export async function POST(req: NextRequest) {
         .filter((l) => l && l !== "[DONE]")
         .join("");
     } else {
-      const json = await cgRes.json() as { choices?: Array<{ message?: { content?: string }; text?: string }>; text?: string };
+      const json = (await cgRes.json()) as {
+        choices?: Array<{ message?: { content?: string }; text?: string }>;
+        text?: string;
+      };
       rawText =
         json.choices?.[0]?.message?.content ??
         json.choices?.[0]?.text ??
@@ -105,22 +107,27 @@ export async function POST(req: NextRequest) {
         "";
     }
 
-    // Try to parse the JSON response from ChainGPT
-    let parsed: { summary?: string; assetBreakdown?: string; performanceInsights?: string; riskAssessment?: string } = {};
+    let parsed: {
+      summary?: string;
+      assetBreakdown?: string;
+      performanceInsights?: string;
+      riskAssessment?: string;
+    } = {};
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]) as typeof parsed;
       }
     } catch {
-      // If parsing fails, use the raw text as summary
+      // If parsing fails, fall back to fallback template with raw as summary
     }
 
+    const fallback = getFallbackAnalysis(body);
     return NextResponse.json({
-      summary: parsed.summary ?? (rawText.slice(0, 300) || getFallbackAnalysis(body).summary),
-      assetBreakdown: parsed.assetBreakdown ?? getFallbackAnalysis(body).assetBreakdown,
-      performanceInsights: parsed.performanceInsights ?? getFallbackAnalysis(body).performanceInsights,
-      riskAssessment: parsed.riskAssessment ?? getFallbackAnalysis(body).riskAssessment,
+      summary: parsed.summary ?? (rawText.slice(0, 300) || fallback.summary),
+      assetBreakdown: parsed.assetBreakdown ?? fallback.assetBreakdown,
+      performanceInsights: parsed.performanceInsights ?? fallback.performanceInsights,
+      riskAssessment: parsed.riskAssessment ?? fallback.riskAssessment,
       raw: rawText,
     });
   } catch (err) {
@@ -132,59 +139,72 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function buildPrompt(body: {
-  fundName: string;
-  strategy: { eth: number; btc: number; link: number; usdc: number };
-  startPrices: { eth: number; btc: number; link: number; usdc: number };
-  currentPrices: { eth: number; btc: number; link: number; usdc: number };
-  performanceScoreBps: number;
-  fundAgedays: number;
-}): string {
-  const { fundName, strategy, startPrices, currentPrices, performanceScoreBps, fundAgedays } = body;
-  const score = (performanceScoreBps / 100).toFixed(2);
+function buildPrompt(body: AnalyzeBody): string {
+  const {
+    fundName,
+    strategy,
+    startPriceEth,
+    currentPriceEth,
+    performanceScoreBps,
+    aaveApyBps,
+    realYield,
+    principal,
+    fundAgedays,
+  } = body;
 
-  const priceChanges = {
-    eth:  ((currentPrices.eth  - startPrices.eth)  / (startPrices.eth  || 1) * 100).toFixed(2),
-    btc:  ((currentPrices.btc  - startPrices.btc)  / (startPrices.btc  || 1) * 100).toFixed(2),
-    link: ((currentPrices.link - startPrices.link) / (startPrices.link || 1) * 100).toFixed(2),
-    usdc: "0.00",
-  };
+  const wethPct = (strategy.wethBps / 100).toFixed(0);
+  const usdcPct = ((10_000 - strategy.wethBps) / 100).toFixed(0);
+  const ethDeltaPct = (
+    ((currentPriceEth - startPriceEth) / (startPriceEth || 1)) *
+    100
+  ).toFixed(2);
+  const alphaPct = (performanceScoreBps / 100).toFixed(2);
+  const apyPct = (aaveApyBps / 100).toFixed(2);
+  const yieldUsdc = (realYield / 1e6).toFixed(4);
+  const principalUsdc = (principal / 1e6).toFixed(2);
 
   return `
 Fund Name: ${fundName}
 Fund Age: ${fundAgedays} days
-Performance Score: ${score}% (weighted by allocation)
 
-Strategy Allocation:
-  ETH:  ${strategy.eth}%  (price change: ${priceChanges.eth}%)
-  BTC:  ${strategy.btc}%  (price change: ${priceChanges.btc}%)
-  LINK: ${strategy.link}% (price change: ${priceChanges.link}%)
-  USDC: ${strategy.usdc}% (stable, 0% change)
+Revealed Strategy (2-asset basket):
+  WETH: ${wethPct}% (virtual allocation — used for alpha scoring)
+  USDC: ${usdcPct}% (virtual allocation)
 
-This was a confidential fund — the strategy was hidden from depositors until now.
-Analyze the strategy and provide:
-1. A summary of the overall approach
-2. A breakdown of how each asset contributed to performance
-3. Performance insights — was this a good allocation given the market conditions?
-4. Risk assessment — was this a balanced or risky portfolio?
+Capital Deployment (real):
+  100% of productive capital is supplied to Aave v3 USDC reserve.
+  Current Aave USDC supply APY: ${apyPct}%
+  Principal currently supplied: ${principalUsdc} USDC
+  Realized real yield so far:   ${yieldUsdc} USDC
+
+Allocation Alpha (vs 50/50 benchmark):
+  ETH price delta over period: ${ethDeltaPct}%
+  Manager's alpha score:       ${alphaPct}% (positive = beat 50/50 hold)
+
+The fund is confidential: the strategy was encrypted on-chain until now.
+Analyze and return JSON with these four sections (2-3 sentences each):
+1. summary — overall approach and outcome
+2. assetBreakdown — how the WETH/USDC split would have performed vs the real USDC-in-Aave deployment
+3. performanceInsights — real Aave yield AND allocation alpha combined
+4. riskAssessment — risk profile given the virtual allocation and real capital routing
 `.trim();
 }
 
-function getFallbackAnalysis(body: {
-  fundName: string;
-  strategy: { eth: number; btc: number; link: number; usdc: number };
-  performanceScoreBps: number;
-  fundAgedays: number;
-}) {
-  const { strategy, performanceScoreBps } = body;
-  const score = (performanceScoreBps / 100).toFixed(2);
-  const isPositive = performanceScoreBps >= 0;
+function getFallbackAnalysis(body: AnalyzeBody) {
+  const { strategy, performanceScoreBps, aaveApyBps, realYield, principal } = body;
+  const wethPct = (strategy.wethBps / 100).toFixed(0);
+  const usdcPct = ((10_000 - strategy.wethBps) / 100).toFixed(0);
+  const alpha = (performanceScoreBps / 100).toFixed(2);
+  const apy = (aaveApyBps / 100).toFixed(2);
+  const yieldUsdc = (realYield / 1e6).toFixed(4);
+  const principalUsdc = (principal / 1e6).toFixed(2);
+  const alphaPositive = performanceScoreBps >= 0;
 
   return {
-    summary: `This fund held a diversified crypto portfolio with ${strategy.eth}% ETH, ${strategy.btc}% BTC, ${strategy.link}% LINK, and ${strategy.usdc}% USDC. The overall performance score was ${score}%, ${isPositive ? "outperforming" : "underperforming"} a flat USDC hold.`,
-    assetBreakdown: `ETH (${strategy.eth}%) and BTC (${strategy.btc}%) formed the core volatile exposure. LINK (${strategy.link}%) provided additional upside from oracle infrastructure demand. USDC (${strategy.usdc}%) provided stability and reduced overall drawdown.`,
-    performanceInsights: `With a ${score}% return over the fund period, the strategy ${isPositive ? "generated positive alpha" : "experienced a drawdown"}. The allocation across four assets reduced single-asset concentration risk.`,
-    riskAssessment: `The portfolio maintained ${strategy.usdc}% in stablecoins as a defensive position. Combined crypto exposure was ${100 - strategy.usdc}%, making this a ${strategy.usdc >= 40 ? "moderately" : "highly"} risk-on fund. Suitable for investors with a ${strategy.usdc >= 40 ? "medium" : "high"} risk tolerance.`,
+    summary: `This fund committed a ${wethPct}% WETH / ${usdcPct}% USDC virtual allocation and routed 100% of productive capital to Aave v3 USDC, where it accrues real yield at the current supply APY of ${apy}%. The manager ${alphaPositive ? "outperformed" : "underperformed"} a 50/50 WETH-USDC benchmark by ${alpha}% on allocation alpha.`,
+    assetBreakdown: `The revealed ${wethPct}% WETH claim is scored against Chainlink ETH/USD — no physical WETH exposure was taken. All capital (${principalUsdc} USDC principal) sits in Aave's USDC reserve, earning lending yield (${yieldUsdc} USDC realized so far).`,
+    performanceInsights: `Depositors earn real Aave yield regardless of the manager's allocation claim; the WETH bps only affects the allocation alpha score. With a ${alpha}% alpha and ${yieldUsdc} USDC of realized yield, the combined edge is ${alphaPositive ? "meaningfully positive" : "negative on allocation but still earning base yield"}.`,
+    riskAssessment: `Smart-contract risk is dominated by Aave v3 + iExec Nox confidential contracts. No DEX slippage, no bridging — capital is fully in-protocol on Arbitrum Sepolia. The virtual WETH bet is costless on the downside; the only loss vector beyond Aave itself is reputational (a revealed miss vs the benchmark).`,
     raw: "(ChainGPT API key not set — showing template analysis)",
   };
 }

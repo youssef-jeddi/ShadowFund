@@ -105,11 +105,6 @@ function DepositorFundRow({ fund }: { fund: FundMetadata }) {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {position.hasPendingDeposit && (
-              <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400">
-                Deposit Pending
-              </span>
-            )}
             {position.hasPendingRedeem && (
               <span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-400">
                 Redeem Pending

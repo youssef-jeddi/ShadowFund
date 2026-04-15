@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { shadowFundVaultAbi } from "@/lib/shadow-fund-abi";
+import { CONTRACTS, ZERO_HANDLE } from "@/lib/contracts";
+import { useHandleClient } from "@/hooks/use-handle-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,21 +12,24 @@ import { StrategySliders } from "@/components/shadow-fund/strategy-sliders";
 import { useFundList } from "@/hooks/use-fund-list";
 import { useCreateFund } from "@/hooks/use-create-fund";
 import { useSetStrategy } from "@/hooks/use-set-strategy";
-import { useProcessDeposit } from "@/hooks/use-process-deposit";
 import { useProcessRedeem } from "@/hooks/use-process-redeem";
+import { useInitiateSupply } from "@/hooks/use-initiate-supply";
+import { useFinalizeSupply } from "@/hooks/use-finalize-supply";
+import { useWithdrawFromAave } from "@/hooks/use-withdraw-from-aave";
+import { useFundYield } from "@/hooks/use-fund-yield";
+import { formatUnits } from "viem";
 import { truncateAddress } from "@/lib/utils";
 import type { StrategyAllocation } from "@/hooks/use-set-strategy";
 import type { FundMetadata } from "@/hooks/use-fund-list";
 import Link from "next/link";
 
-const DEFAULT_ALLOCATION: StrategyAllocation = { eth: 25, btc: 25, link: 25, usdc: 25 };
+const DEFAULT_ALLOCATION: StrategyAllocation = { wethBps: 5000 };
 
 export function ManagerDashboardContent() {
   const { address } = useAccount();
   const { funds, isLoading } = useFundList();
   const createFundHook = useCreateFund();
   const setStrategyHook = useSetStrategy();
-  const processDeposit = useProcessDeposit();
   const processRedeem = useProcessRedeem();
 
   // My funds = funds where I'm manager
@@ -176,7 +182,6 @@ export function ManagerDashboardContent() {
               onSubmitStrategy={() => handleSetStrategy(fund.fundId)}
               strategyStep={setStrategyHook.step}
               strategyError={setStrategyHook.error}
-              processDepositHook={processDeposit}
               processRedeemHook={processRedeem}
             />
           ))}
@@ -196,7 +201,6 @@ function ManagerFundCard({
   onSubmitStrategy,
   strategyStep,
   strategyError,
-  processDepositHook,
   processRedeemHook,
 }: {
   fund: FundMetadata;
@@ -208,7 +212,6 @@ function ManagerFundCard({
   onSubmitStrategy: () => void;
   strategyStep: string;
   strategyError: string | null;
-  processDepositHook: ReturnType<typeof useProcessDeposit>;
   processRedeemHook: ReturnType<typeof useProcessRedeem>;
 }) {
   const [processAddr, setProcessAddr] = useState("");
@@ -278,13 +281,13 @@ function ManagerFundCard({
                     className="flex-1 text-sm"
                     style={{ background: "var(--sf-violet)", color: "#fff" }}
                     disabled={
-                      allocation.eth + allocation.btc + allocation.link + allocation.usdc !== 100
+                      allocation.wethBps < 0 || allocation.wethBps > 10_000
                       || (strategyStep !== "idle" && strategyStep !== "error" && strategyStep !== "confirmed")
                     }
                     onClick={onSubmitStrategy}
                   >
-                    {strategyStep.startsWith("encrypting")
-                      ? `Encrypting ${strategyStep.split("_")[1]?.toUpperCase()}...`
+                    {strategyStep === "encrypting"
+                      ? "Encrypting..."
                       : strategyStep === "writing"
                       ? "Submitting..."
                       : strategyStep === "confirmed"
@@ -311,10 +314,18 @@ function ManagerFundCard({
           </div>
         )}
 
-        {/* Process deposits/redemptions */}
+        {/* Process pending redeems — only needed when the fast path was skipped
+            (fund has capital in Aave and a depositor requested a redeem larger
+            than the idle liquidity). Deposits are auto-minted in the receiver
+            callback, no manager action required. */}
         <div className="mt-4 flex flex-col gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-            Process Pending Requests
+            Process Pending Redeem
+          </p>
+          <p className="text-[11px] text-text-muted leading-relaxed">
+            Only needed when you currently have capital supplied to Aave — small
+            redeems auto-settle. After pulling liquidity back from Aave, process
+            the queued redeem for each affected user.
           </p>
           <input
             className="rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
@@ -323,36 +334,24 @@ function ManagerFundCard({
             value={processAddr}
             onChange={(e) => setProcessAddr(e.target.value)}
           />
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 text-xs"
-              disabled={!processAddr || processDepositHook.step === "writing"}
-              onClick={() =>
-                processDepositHook.processDeposit(fund.fundId, processAddr as `0x${string}`)
-              }
-            >
-              {processDepositHook.step === "writing" ? "Processing..." : "Process Deposit"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 text-xs"
-              disabled={!processAddr || processRedeemHook.step === "writing"}
-              onClick={() =>
-                processRedeemHook.processRedeem(fund.fundId, processAddr as `0x${string}`)
-              }
-            >
-              {processRedeemHook.step === "writing" ? "Processing..." : "Process Redeem"}
-            </Button>
-          </div>
-          {(processDepositHook.error || processRedeemHook.error) && (
-            <p className="text-sm text-red-400">
-              {processDepositHook.error ?? processRedeemHook.error}
-            </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
+            disabled={!processAddr || processRedeemHook.step === "writing"}
+            onClick={() =>
+              processRedeemHook.processRedeem(fund.fundId, processAddr as `0x${string}`)
+            }
+          >
+            {processRedeemHook.step === "writing" ? "Processing..." : "Process Redeem"}
+          </Button>
+          {processRedeemHook.error && (
+            <p className="text-sm text-red-400">{processRedeemHook.error}</p>
           )}
         </div>
+
+        {/* Aave vault performance + capital deployment */}
+        <VaultAaveSection fundId={fund.fundId} />
 
         {/* Reveal link */}
         {!fund.revealed && fund.strategySet && (
@@ -372,6 +371,249 @@ function ManagerFundCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function VaultAaveSection({ fundId }: { fundId: bigint }) {
+  const { fundYield } = useFundYield(fundId);
+  const initiate = useInitiateSupply();
+  const finalize = useFinalizeSupply(fundId);
+  const withdraw = useWithdrawFromAave();
+  const { handleClient } = useHandleClient();
+
+  const [supplyAmt, setSupplyAmt] = useState("");
+  const [withdrawAmt, setWithdrawAmt] = useState("");
+
+  const principal = fundYield?.principal ?? 0n;
+  const aValue = fundYield?.aValue ?? 0n;
+  const yieldAmount = fundYield?.yieldAmount ?? 0n;
+  const apyPct = fundYield ? (Number(fundYield.apyBps) / 100).toFixed(2) : "—";
+
+  const pendingAmt = finalize.pendingAmount ?? 0n;
+  const hasPending = pendingAmt > 0n;
+
+  // ── Manager-only TVL decryption ──────────────────────────────────────────
+  // `totalAssets` is encrypted with a manager-only ACL granted on every
+  // mutation. We read the handle and let the manager decrypt it client-side
+  // via the Nox SDK so they know how much cUSDC the fund currently holds
+  // before deciding how much to push to Aave.
+  const vaultAddress = ("SHADOW_FUND_VAULT" in CONTRACTS)
+    ? (CONTRACTS as Record<string, `0x${string}`>).SHADOW_FUND_VAULT
+    : undefined;
+
+  const { data: totalAssetsHandle } = useReadContract({
+    address: vaultAddress,
+    abi: shadowFundVaultAbi,
+    functionName: "getFundTotalAssets",
+    args: [fundId],
+    query: { enabled: !!vaultAddress, refetchInterval: 15_000 },
+  });
+
+  const [tvlDecrypted, setTvlDecrypted] = useState<bigint | null>(null);
+  const [tvlDecrypting, setTvlDecrypting] = useState(false);
+  const [tvlError, setTvlError] = useState<string | null>(null);
+
+  const decryptTvl = useCallback(async () => {
+    if (!handleClient) {
+      setTvlError("Handle client not ready");
+      return;
+    }
+    const handle = totalAssetsHandle as `0x${string}` | undefined;
+    if (!handle || handle === ZERO_HANDLE) {
+      setTvlDecrypted(0n);
+      return;
+    }
+    setTvlDecrypting(true);
+    setTvlError(null);
+    try {
+      const result = await handleClient.decrypt(handle);
+      const raw = (result as { value?: unknown })?.value ?? result;
+      const value = typeof raw === "bigint" ? raw : BigInt(String(raw));
+      setTvlDecrypted(value);
+    } catch (err) {
+      setTvlError(err instanceof Error ? err.message : "Decryption failed");
+    } finally {
+      setTvlDecrypting(false);
+    }
+  }, [handleClient, totalAssetsHandle]);
+
+  const idleCusdc = tvlDecrypted !== null && tvlDecrypted >= principal
+    ? tvlDecrypted - principal
+    : null;
+
+  return (
+    <div
+      className="mt-4 flex flex-col gap-3 rounded-xl border p-3"
+      style={{ borderColor: "var(--sf-card-border)", background: "var(--sf-card-inner, transparent)" }}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+          Aave Vault Performance
+        </p>
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+          Aave v3 · {apyPct}% APY
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <Stat label="Principal" value={`${formatUnits(principal, 6)} USDC`} />
+        <Stat label="aValue" value={`${formatUnits(aValue, 6)} USDC`} />
+        <Stat
+          label="Yield"
+          value={`${yieldAmount >= 0n ? "+" : ""}${formatUnits(yieldAmount, 6)}`}
+          highlight={yieldAmount > 0n ? "emerald" : undefined}
+        />
+      </div>
+
+      {/* Manager-only fund TVL (encrypted) */}
+      <div
+        className="flex items-center justify-between rounded-xl border px-3 py-2"
+        style={{ borderColor: "var(--sf-violet-border)", background: "var(--sf-violet-subtle)" }}
+      >
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase tracking-wide text-text-muted">
+            Fund TVL (encrypted — manager only)
+          </span>
+          <span className="text-xs font-semibold text-text-heading">
+            {tvlDecrypted !== null
+              ? `${formatUnits(tvlDecrypted, 6)} cUSDC`
+              : "●●●●●"}
+          </span>
+          {idleCusdc !== null && (
+            <span className="text-[10px] text-text-muted">
+              Idle (available to supply): {formatUnits(idleCusdc, 6)} cUSDC
+            </span>
+          )}
+          {tvlError && <span className="text-[10px] text-red-400">{tvlError}</span>}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-xs"
+          style={{ borderColor: "var(--sf-violet-border)", color: "var(--sf-violet-text)" }}
+          disabled={tvlDecrypting}
+          onClick={decryptTvl}
+        >
+          {tvlDecrypting ? "..." : "Decrypt"}
+        </Button>
+      </div>
+
+      {/* Supply */}
+      <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--sf-card-border)" }}>
+        <p className="text-xs font-semibold text-text-heading">Supply to Aave</p>
+        {!hasPending ? (
+          <div className="flex gap-2">
+            <input
+              className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
+              style={{ borderColor: "var(--sf-card-border)" }}
+              placeholder="USDC amount"
+              value={supplyAmt}
+              onChange={(e) => setSupplyAmt(e.target.value)}
+              disabled={initiate.step === "writing"}
+            />
+            {idleCusdc !== null && idleCusdc > 0n && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-[10px] px-2"
+                disabled={initiate.step === "writing"}
+                onClick={() => setSupplyAmt(formatUnits(idleCusdc, 6))}
+              >
+                Max
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              disabled={!supplyAmt || initiate.step === "writing"}
+              onClick={async () => {
+                const ok = await initiate.initiateSupply(fundId, supplyAmt);
+                if (ok) setSupplyAmt("");
+              }}
+            >
+              {initiate.step === "writing" ? "Initiating..." : "1. Initiate"}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2 rounded-xl bg-amber-500/10 px-3 py-2">
+            <div className="flex flex-col">
+              <span className="text-xs text-amber-400">
+                Pending unwrap: {formatUnits(pendingAmt, 6)} USDC
+              </span>
+              <span className="text-[10px] text-text-muted">
+                TEE cooldown — finalize to supply to Aave
+              </span>
+            </div>
+            <Button
+              size="sm"
+              className="text-xs"
+              style={{ background: "var(--sf-violet)", color: "#fff" }}
+              disabled={finalize.step === "decrypting" || finalize.step === "writing"}
+              onClick={() => finalize.finalize(fundId)}
+            >
+              {finalize.step === "decrypting"
+                ? "Decrypting..."
+                : finalize.step === "writing"
+                ? "Supplying..."
+                : "2. Finalize → Supply"}
+            </Button>
+          </div>
+        )}
+        {initiate.error && <p className="text-xs text-red-400">{initiate.error}</p>}
+        {finalize.error && <p className="text-xs text-red-400">{finalize.error}</p>}
+      </div>
+
+      {/* Withdraw */}
+      <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--sf-card-border)" }}>
+        <p className="text-xs font-semibold text-text-heading">Withdraw from Aave</p>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
+            style={{ borderColor: "var(--sf-card-border)" }}
+            placeholder="USDC amount (≤ aValue)"
+            value={withdrawAmt}
+            onChange={(e) => setWithdrawAmt(e.target.value)}
+            disabled={withdraw.step === "writing"}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
+            disabled={!withdrawAmt || withdraw.step === "writing"}
+            onClick={async () => {
+              const ok = await withdraw.withdraw(fundId, withdrawAmt);
+              if (ok) setWithdrawAmt("");
+            }}
+          >
+            {withdraw.step === "writing" ? "Withdrawing..." : "Withdraw"}
+          </Button>
+        </div>
+        {withdraw.error && <p className="text-xs text-red-400">{withdraw.error}</p>}
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  highlight?: "emerald";
+}) {
+  return (
+    <div className="flex flex-col rounded-lg bg-surface px-2 py-1.5">
+      <span className="text-[10px] uppercase tracking-wide text-text-muted">{label}</span>
+      <span
+        className={`text-xs font-semibold ${
+          highlight === "emerald" ? "text-emerald-400" : "text-text-heading"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
