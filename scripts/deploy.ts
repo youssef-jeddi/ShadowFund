@@ -19,9 +19,7 @@ import * as path from "path";
 
 // ── Chainlink feed addresses (Arbitrum Sepolia) ────────────────────────────
 const CHAINLINK_FEEDS = {
-  ETH_USD:  "0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165",
-  BTC_USD:  "0x56a43EB56Da12C0dc1D972ACb089c06a5dEF8e69",
-  LINK_USD: "0x0FB99723Aee6f420beAD13e6bBB79b7E6F034298",
+  ETH_USD: "0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165",
 };
 
 // ── Existing cUSDC address (from iExec Nox demo, do not redeploy) ──────────
@@ -35,11 +33,7 @@ async function main() {
   // 1. Deploy PriceOracle
   console.log("1/2 Deploying PriceOracle...");
   const PriceOracle = await ethers.getContractFactory("PriceOracle");
-  const oracle = await PriceOracle.deploy(
-    CHAINLINK_FEEDS.ETH_USD,
-    CHAINLINK_FEEDS.BTC_USD,
-    CHAINLINK_FEEDS.LINK_USD,
-  );
+  const oracle = await PriceOracle.deploy(CHAINLINK_FEEDS.ETH_USD);
   await oracle.waitForDeployment();
   const oracleAddress = await oracle.getAddress();
   console.log(`   PriceOracle deployed → ${oracleAddress}`);
@@ -79,11 +73,7 @@ async function main() {
     try {
       await run("verify:verify", {
         address: oracleAddress,
-        constructorArguments: [
-          CHAINLINK_FEEDS.ETH_USD,
-          CHAINLINK_FEEDS.BTC_USD,
-          CHAINLINK_FEEDS.LINK_USD,
-        ],
+        constructorArguments: [CHAINLINK_FEEDS.ETH_USD],
       });
       console.log("   PriceOracle verified ✓");
     } catch (e: any) {

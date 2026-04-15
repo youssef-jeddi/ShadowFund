@@ -18,9 +18,9 @@ export const CONTRACTS = {
   NOX_COMPUTE: "0xd464B198f06756a1d00be223634b85E0a731c229",
 
   /** ShadowFund price oracle (Chainlink wrapper for ETH/BTC/LINK) */
-  PRICE_ORACLE: "0x847DA272D6Ec47206e23C17EdBb84859dAB2EbE4",
+  PRICE_ORACLE: "0x90559D513936571DD353ce76eF53f03c0E2fC016",
   /** ShadowFundVault — main confidential vault contract */
-  SHADOW_FUND_VAULT: "0x46012F653755Da1B082Ab0161821b8A7e383e7E2",
+  SHADOW_FUND_VAULT: "0xf564C0cb2Acca6cC8B25b153b8ce217fe944901d",
 } as const;
 
 /** Null address — used to filter native tokens (ETH) in contract calls */

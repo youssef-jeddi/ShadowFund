@@ -22,6 +22,16 @@ export const shadowFundVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "AaveSupplyFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AaveWithdrawFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "AlreadyRevealed",
     "type": "error"
   },
@@ -32,17 +42,27 @@ export const shadowFundVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "InsufficientFundAValue",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidCallbackData",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "NoPendingDeposit",
+    "name": "InvalidWethBps",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "NoPendingRedeem",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoPendingSupply",
     "type": "error"
   },
   {
@@ -66,23 +86,14 @@ export const shadowFundVaultAbi = [
     "type": "error"
   },
   {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "fundId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      }
-    ],
-    "name": "DepositProcessed",
-    "type": "event"
+    "inputs": [],
+    "name": "SupplyAlreadyPending",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAmount",
+    "type": "error"
   },
   {
     "anonymous": false,
@@ -92,15 +103,9 @@ export const shadowFundVaultAbi = [
         "internalType": "uint256",
         "name": "fundId",
         "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
       }
     ],
-    "name": "DepositRequested",
+    "name": "Deposited",
     "type": "event"
   },
   {
@@ -203,25 +208,7 @@ export const shadowFundVaultAbi = [
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "pctETH",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "pctBTC",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "pctLINK",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "pctUSDC",
+        "name": "wethBps",
         "type": "uint256"
       }
     ],
@@ -239,6 +226,63 @@ export const shadowFundVaultAbi = [
       }
     ],
     "name": "StrategySet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "SuppliedToAave",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "SupplyInitiated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "WithdrawnFromAave",
     "type": "event"
   },
   {
@@ -379,6 +423,56 @@ export const shadowFundVaultAbi = [
         "internalType": "uint256",
         "name": "fundId",
         "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "decryptionProof",
+        "type": "bytes"
+      }
+    ],
+    "name": "finalizeSupply",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getCurrentAaveApyBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getFundAValue",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
       }
     ],
     "name": "getFundMetadata",
@@ -440,6 +534,101 @@ export const shadowFundVaultAbi = [
         "type": "uint256"
       }
     ],
+    "name": "getFundPrincipal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getFundTotalAssets",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getFundYield",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPendingSupplyAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPendingUnwrapHandle",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      }
+    ],
     "name": "getPerformanceScoreBps",
     "outputs": [
       {
@@ -463,22 +652,12 @@ export const shadowFundVaultAbi = [
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "eth",
+        "name": "wethBps",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "btc",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "link",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "usdc",
+        "name": "usdcBps",
         "type": "uint256"
       }
     ],
@@ -493,36 +672,25 @@ export const shadowFundVaultAbi = [
         "type": "uint256"
       }
     ],
-    "name": "getStartPrices",
+    "name": "getStartPriceEth",
     "outputs": [
       {
-        "internalType": "int256[4]",
+        "internalType": "int256",
         "name": "",
-        "type": "int256[4]"
+        "type": "int256"
       }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "fundId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      }
-    ],
-    "name": "hasPendingDeposit",
+    "inputs": [],
+    "name": "getVaultAUsdcBalance",
     "outputs": [
       {
-        "internalType": "bool",
+        "internalType": "uint256",
         "name": "",
-        "type": "bool"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -550,6 +718,24 @@ export const shadowFundVaultAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "plaintextAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "initiateSupply",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -697,24 +883,6 @@ export const shadowFundVaultAbi = [
         "type": "address"
       }
     ],
-    "name": "processDeposit",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "fundId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      }
-    ],
     "name": "processRedeem",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -781,22 +949,7 @@ export const shadowFundVaultAbi = [
       },
       {
         "internalType": "uint256",
-        "name": "plaintextEth",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "plaintextBtc",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "plaintextLink",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "plaintextUsdc",
+        "name": "plaintextWethBps",
         "type": "uint256"
       }
     ],
@@ -814,42 +967,12 @@ export const shadowFundVaultAbi = [
       },
       {
         "internalType": "externalEuint256",
-        "name": "extPctETH",
+        "name": "wethBpsHandle",
         "type": "bytes32"
       },
       {
         "internalType": "bytes",
-        "name": "proofETH",
-        "type": "bytes"
-      },
-      {
-        "internalType": "externalEuint256",
-        "name": "extPctBTC",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes",
-        "name": "proofBTC",
-        "type": "bytes"
-      },
-      {
-        "internalType": "externalEuint256",
-        "name": "extPctLINK",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes",
-        "name": "proofLINK",
-        "type": "bytes"
-      },
-      {
-        "internalType": "externalEuint256",
-        "name": "extPctUSDC",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes",
-        "name": "proofUSDC",
+        "name": "proof",
         "type": "bytes"
       }
     ],
@@ -900,6 +1023,37 @@ export const shadowFundVaultAbi = [
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalPrincipalSum",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fundId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "plaintextAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawFromAave",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ] as const;
 
@@ -910,16 +1064,6 @@ export const priceOracleAbi = [
         "internalType": "address",
         "name": "_ethFeed",
         "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_btcFeed",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_linkFeed",
-        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -927,33 +1071,7 @@ export const priceOracleAbi = [
   },
   {
     "inputs": [],
-    "name": "BTC_ID",
-    "outputs": [
-      {
-        "internalType": "uint8",
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "ETH_ID",
-    "outputs": [
-      {
-        "internalType": "uint8",
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "LINK_ID",
     "outputs": [
       {
         "internalType": "uint8",
@@ -992,19 +1110,6 @@ export const priceOracleAbi = [
   },
   {
     "inputs": [],
-    "name": "btcFeed",
-    "outputs": [
-      {
-        "internalType": "contract AggregatorV3Interface",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "ethFeed",
     "outputs": [
       {
@@ -1018,12 +1123,25 @@ export const priceOracleAbi = [
   },
   {
     "inputs": [],
+    "name": "getAaveUsdcSupplyApyBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "apyBps",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "getAllPrices",
     "outputs": [
       {
-        "internalType": "int256[4]",
+        "internalType": "int256[2]",
         "name": "prices",
-        "type": "int256[4]"
+        "type": "int256[2]"
       }
     ],
     "stateMutability": "view",
@@ -1043,19 +1161,6 @@ export const priceOracleAbi = [
         "internalType": "int256",
         "name": "priceE8",
         "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "linkFeed",
-    "outputs": [
-      {
-        "internalType": "contract AggregatorV3Interface",
-        "name": "",
-        "type": "address"
       }
     ],
     "stateMutability": "view",
