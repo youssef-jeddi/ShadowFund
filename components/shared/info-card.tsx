@@ -5,17 +5,38 @@ interface InfoCardProps {
   className?: string;
 }
 
-export function InfoCard({ children, className }: InfoCardProps) {
+export function InfoCard({ children }: InfoCardProps) {
   return (
-    <div className={`flex w-full gap-4 rounded-2xl border border-surface-border bg-surface px-3 py-2.5 backdrop-blur-sm md:p-6 ${className ?? ""}`}>
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary md:size-10">
-        <span aria-hidden="true" className="material-icons text-[14px]! text-primary-foreground md:text-[24px]!">
-          info
-        </span>
+    <div
+      style={{
+        display: "flex",
+        gap: 14,
+        border: "1px solid var(--border)",
+        background: "var(--surface)",
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          width: 22, height: 22,
+          borderRadius: 999,
+          border: "1px solid var(--border-strong)",
+          display: "grid",
+          placeItems: "center",
+          flexShrink: 0,
+          fontSize: 11,
+          color: "var(--text-muted)",
+          fontStyle: "italic",
+          fontFamily: "var(--font-display)",
+        }}
+      >
+        i
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="font-mulish text-sm font-bold text-text-heading">How it works</p>
-        <p className="mt-1 font-mulish text-xs leading-[19.5px] text-text-body">
+      <div style={{ flex: 1 }}>
+        <p style={{ fontSize: 11, fontWeight: 500, color: "var(--text-dim)", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          How it works
+        </p>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7 }}>
           {children}
         </p>
       </div>

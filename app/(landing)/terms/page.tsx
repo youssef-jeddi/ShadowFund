@@ -1,124 +1,106 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms of Use | Nox Confidential Token",
+  title: "Terms of Use | ShadowFund",
   description:
-    "Terms of use for the Nox Confidential Token demo application on Arbitrum Sepolia testnet.",
+    "Terms of use for the ShadowFund confidential DeFi vault protocol on iExec Nox.",
 };
 
 const LAST_UPDATED = "March 7, 2026";
 
 export default function TermsPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 md:px-20 lg:px-40">
-      <h1 className="font-anybody text-4xl font-bold text-text-heading">
+    <main style={{ maxWidth: 800, margin: "0 auto", padding: "64px 32px" }}>
+      <h1
+        className="display"
+        style={{ fontSize: 56, letterSpacing: "-0.025em", lineHeight: 1 }}
+      >
         Terms of Use
+        <span className="display-italic" style={{ color: "var(--pearl)" }}>.</span>
       </h1>
-      <p className="mt-2 font-mulish text-sm text-text-muted">
+      <p
+        className="mono"
+        style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.1em" }}
+      >
         Last updated: {LAST_UPDATED}
       </p>
 
-      <div className="mt-10 space-y-8 font-mulish text-text-body">
+      <div style={{ marginTop: 48, display: "flex", flexDirection: "column", gap: 32 }}>
         <Section title="1. Acceptance of Terms">
           <p>
-            By accessing or using the Nox Confidential Token application (the
-            &quot;App&quot;), you agree to be bound by these Terms of Use. If
-            you do not agree with any part of these terms, you must not use the
-            App.
+            By accessing or using the ShadowFund application (the &quot;App&quot;),
+            you agree to be bound by these Terms of Use. If you do not agree with
+            any part of these terms, you must not use the App.
           </p>
         </Section>
 
         <Section title="2. Testnet Disclaimer">
           <p>
-            The App operates exclusively on the <strong>Arbitrum Sepolia
-            testnet</strong>. All tokens displayed, minted, wrapped, or
-            transferred within the App have <strong>no real monetary
-            value</strong>. This is a demonstration and testing environment
-            only. Do not send real assets to any address generated or displayed
-            by the App.
+            The App operates on the <strong>iExec Nox testnet</strong>. All tokens
+            displayed, minted, wrapped, or transferred within the App have{" "}
+            <strong>no real monetary value</strong>. This is a demonstration and
+            testing environment only.
           </p>
         </Section>
 
         <Section title="3. Confidential Tokens">
           <p>
-            The App showcases confidential tokens (cTokens) built on the
-            ERC-7984 standard. While the protocol is designed to provide
-            on-chain confidentiality through encrypted balances and selective
-            disclosure, <strong>no guarantee of absolute privacy or
-            confidentiality</strong> is made. The technology is experimental and
-            under active development.
+            The App uses confidential tokens (cUSDC) built on the iExec Nox
+            infrastructure. While the protocol is designed to provide on-chain
+            confidentiality through encrypted balances,{" "}
+            <strong>no guarantee of absolute privacy or confidentiality</strong> is
+            made. The technology is experimental.
           </p>
         </Section>
 
         <Section title="4. Wallet Responsibility">
           <p>
             You are solely responsible for the security and management of your
-            wallet, private keys, and seed phrases. The App does not store,
-            access, or recover your private keys. Loss of access to your wallet
-            is permanent and irreversible.
+            wallet, private keys, and seed phrases. The App does not store, access,
+            or recover your private keys.
           </p>
         </Section>
 
         <Section title="5. No Financial Advice">
           <p>
             Nothing in the App constitutes financial, investment, legal, or tax
-            advice. The App is provided for educational and demonstration
-            purposes only. You should consult appropriate professionals before
-            making any financial decisions.
+            advice. The App is provided for educational and demonstration purposes
+            only.
           </p>
         </Section>
 
         <Section title="6. Intellectual Property">
           <p>
-            The Nox protocol, its smart contracts, SDK, and this application are
-            developed by <strong>iExec Blockchain Tech</strong>. All
+            The iExec Nox protocol, its smart contracts, SDK, and this application
+            are developed by <strong>iExec Blockchain Tech</strong>. All
             intellectual property rights remain with their respective owners.
-            You may not copy, modify, or distribute any part of the App without
-            prior written consent.
           </p>
         </Section>
 
         <Section title="7. Limitation of Liability">
           <p>
-            The App is provided &quot;as is&quot; and &quot;as available&quot;
-            without warranties of any kind. iExec Blockchain Tech shall not be
-            liable for any losses, damages, or claims arising from your use of
-            the App, including but not limited to:
-          </p>
-          <ul className="mt-2 list-disc space-y-1 pl-6">
-            <li>Loss of testnet tokens or assets</li>
-            <li>Smart contract bugs or vulnerabilities</li>
-            <li>Network downtime or transaction failures</li>
-            <li>Unauthorized access to your wallet</li>
-          </ul>
-        </Section>
-
-        <Section title="8. Prohibited Use">
-          <p>
-            You agree not to use the App for any unlawful purpose, to attempt to
-            exploit or disrupt the underlying smart contracts or infrastructure,
-            or to interfere with other users&apos; access to the App.
+            The App is provided &quot;as is&quot; without warranties. iExec
+            Blockchain Tech shall not be liable for any losses, damages, or claims
+            arising from your use of the App.
           </p>
         </Section>
 
-        <Section title="9. Modifications">
+        <Section title="8. Modifications">
           <p>
-            We reserve the right to modify these Terms of Use at any time.
-            Changes will be reflected by updating the &quot;Last updated&quot;
-            date above. Continued use of the App after modifications constitutes
-            acceptance of the revised terms.
+            We reserve the right to modify these Terms at any time. Continued use
+            of the App after modifications constitutes acceptance of the revised
+            terms.
           </p>
         </Section>
 
-        <Section title="10. Contact">
+        <Section title="9. Contact">
           <p>
-            For questions about these Terms of Use, please contact the iExec
-            team at{" "}
+            For questions, contact the iExec team at{" "}
             <a
               href="https://iex.ec"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary underline hover:opacity-80"
+              style={{ color: "var(--pearl)", textDecoration: "none" }}
             >
               iex.ec
             </a>
@@ -139,10 +121,22 @@ function Section({
 }) {
   return (
     <section>
-      <h2 className="font-inter text-lg font-bold text-text-heading">
+      <h2
+        className="display"
+        style={{ fontSize: 22, letterSpacing: "-0.015em", fontWeight: 500 }}
+      >
         {title}
       </h2>
-      <div className="mt-2 leading-relaxed">{children}</div>
+      <div
+        style={{
+          marginTop: 10,
+          color: "var(--text-dim)",
+          fontSize: 14,
+          lineHeight: 1.7,
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }

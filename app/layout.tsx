@@ -1,60 +1,61 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Script from "next/script";
-import { Mulish, Anybody, Inter } from "next/font/google";
+import { Cormorant_Garamond, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { Providers } from "@/components/providers";
 import { APP_URL, CONFIG } from "@/lib/config";
 import "./globals.css";
 
-const mulish = Mulish({
-  variable: "--font-mulish",
+const cormorant = Cormorant_Garamond({
+  variable: "--font-cormorant",
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
 });
 
-const anybody = Anybody({
-  variable: "--font-anybody",
+const instrument = Instrument_Sans({
+  variable: "--font-instrument",
   subsets: ["latin"],
-  weight: ["700"],
+  weight: ["400", "500", "600"],
 });
 
-const inter = Inter({
-  variable: "--font-inter",
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "Confidential Token by iExec",
-    template: "%s | Confidential Token by iExec",
+    default: "ShadowFund — Confidential DeFi Vaults",
+    template: "%s | ShadowFund",
   },
   description:
-    "Transform any ERC-20 into confidential and auditable on-chain assets. The missing privacy layer for institutional DeFi on Arbitrum.",
+    "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.",
   openGraph: {
     type: "website",
     locale: "en_US",
     url: APP_URL,
-    siteName: "Confidential Token by iExec",
-    title: "Confidential Token by iExec",
+    siteName: "ShadowFund",
+    title: "ShadowFund — Confidential DeFi Vaults",
     description:
-      "Transform any ERC-20 into confidential and auditable on-chain assets. The missing privacy layer for institutional DeFi on Arbitrum.",
+      "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.",
     images: [
       {
         url: "/og-image.png",
         width: 1200,
         height: 675,
-        alt: "Confidential Token by iExec",
+        alt: "ShadowFund",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Confidential Token by iExec",
+    title: "ShadowFund — Confidential DeFi Vaults",
     description:
-      "Transform any ERC-20 into confidential and auditable on-chain assets. The missing privacy layer for institutional DeFi on Arbitrum.",
+      "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.",
     images: ["/og-image.png"],
   },
   robots: {
@@ -75,7 +76,11 @@ export default async function RootLayout({
     .join("; ");
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${cormorant.variable} ${instrument.variable} ${jetbrains.variable}`}
+    >
       <Script
         id="gtm-script"
         strategy="afterInteractive"
@@ -87,14 +92,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 })(window,document,'script','dataLayer','${CONFIG.gtm.id}');`,
         }}
       />
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined"
-        precedence="default"
-      />
-      <body
-        className={`${mulish.variable} ${anybody.variable} ${inter.variable} flex min-h-screen flex-col antialiased`}
-      >
+      <body className="flex min-h-screen flex-col antialiased">
         <noscript>
           <iframe
             src={`https://www.googletagmanager.com/ns.html?id=${CONFIG.gtm.id}`}

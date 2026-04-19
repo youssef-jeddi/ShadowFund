@@ -7,6 +7,7 @@ import { useDecryptHandle } from "@/hooks/use-decrypt-handle";
 import { useDevMode } from "@/hooks/use-dev-mode";
 import { CodeSection } from "@/components/shared/code-section";
 import { InfoCard } from "@/components/shared/info-card";
+import { Eyebrow } from "@/components/shadow-fund/primitives/eyebrow";
 import {
   DELEGATED_VIEW_TABS,
   exportToCsv,
@@ -22,14 +23,6 @@ const logs = await publicClient.getContractEvents({
   eventName: "ViewerAdded",
   args: { viewer: myAddress },
   fromBlock: 0n,
-});
-
-// Resolve token by matching handle to current balances
-const handle = await publicClient.readContract({
-  address: cTokenAddress,
-  abi: confidentialTokenAbi,
-  functionName: "confidentialBalanceOf",
-  args: [grantorAddress],
 });`;
 
 const DEV_CODE_GRANTS = `// Fetch ViewerAdded events where I am the sender
@@ -39,71 +32,7 @@ const logs = await publicClient.getContractEvents({
   eventName: "ViewerAdded",
   args: { sender: myAddress },
   fromBlock: 0n,
-});
-
-// Active = handle matches current confidentialBalanceOf
-const currentHandle = await publicClient.readContract({
-  address: cTokenAddress,
-  abi: confidentialTokenAbi,
-  functionName: "confidentialBalanceOf",
-  args: [myAddress],
 });`;
-
-function TableSkeleton() {
-  return (
-    <div className="w-full overflow-hidden rounded-2xl border border-surface-border bg-surface backdrop-blur-sm">
-      <div className="divide-y divide-surface-border">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-6 px-6 py-5">
-            <div className="h-9 w-9 animate-pulse rounded-lg bg-surface-border" />
-            <div className="h-4 w-20 animate-pulse rounded bg-surface-border" />
-            <div className="h-4 w-24 animate-pulse rounded bg-surface-border" />
-            <div className="ml-auto h-4 w-20 animate-pulse rounded bg-surface-border" />
-            <div className="h-4 w-28 animate-pulse rounded bg-surface-border" />
-            <div className="h-4 w-16 animate-pulse rounded bg-surface-border" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ tab }: { tab: DelegatedViewTab }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-surface-border bg-surface py-16 backdrop-blur-sm">
-      <span
-        aria-hidden="true"
-        className="material-icons text-[48px]! text-text-muted/40"
-      >
-        {tab === "shared" ? "visibility" : "share"}
-      </span>
-      <p className="mt-4 font-inter text-sm font-medium text-text-muted">
-        {tab === "shared"
-          ? "No one has shared handle access with you yet."
-          : "You haven't granted viewer access to anyone yet."}
-      </p>
-    </div>
-  );
-}
-
-function ErrorState({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-red-500/20 bg-red-500/5 py-16">
-      <span
-        aria-hidden="true"
-        className="material-icons text-[48px]! text-red-400/60"
-      >
-        error_outline
-      </span>
-      <p className="mt-4 font-inter text-sm font-medium text-red-400">
-        Failed to load delegated view
-      </p>
-      <p className="mt-1 max-w-md text-center font-inter text-xs text-text-muted">
-        {message}
-      </p>
-    </div>
-  );
-}
 
 export function DelegatedViewContent() {
   const { sharedWithMe, myGrants, isLoading, error } = useDelegatedView();
@@ -113,11 +42,9 @@ export function DelegatedViewContent() {
   const [page, setPage] = useState(1);
 
   const entries = activeTab === "shared" ? sharedWithMe : myGrants;
-
   const totalPages = Math.max(1, Math.ceil(entries.length / ITEMS_PER_PAGE));
   const paginated = useMemo(
-    () =>
-      entries.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
+    () => entries.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
     [entries, page],
   );
 
@@ -127,30 +54,50 @@ export function DelegatedViewContent() {
   }
 
   return (
-    <div className="flex flex-col gap-6 px-5 py-6 md:gap-10 md:px-10 md:py-10 lg:px-[114px]">
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "56px 32px" }}>
       {/* Header */}
-      <div>
-        <h1 className="font-anybody text-2xl font-bold leading-9 tracking-tight text-text-heading md:text-[30px]">
-          Delegated View
-        </h1>
-        <p className="mt-1 font-inter text-sm text-text-body md:mt-2">
-          View and manage ACL delegations for your confidential token handles.
-        </p>
-      </div>
+      <Eyebrow>iExec Nox · ACL delegations</Eyebrow>
+      <h1
+        className="display"
+        style={{ fontSize: 64, marginTop: 14, letterSpacing: "-0.028em", lineHeight: 1 }}
+      >
+        Delegated
+        <span className="display-italic" style={{ color: "var(--pearl)" }}> view</span>
+        .
+      </h1>
+      <p style={{ color: "var(--text-dim)", marginTop: 10, fontSize: 15, marginBottom: 40 }}>
+        View and manage ACL delegations for your confidential token handles.
+      </p>
 
       {/* Tabs + Export */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 28,
+          paddingBottom: 20,
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div style={{ display: "flex", gap: 4 }}>
           {DELEGATED_VIEW_TABS.map((tab) => (
             <button
               key={tab.value}
               type="button"
               onClick={() => handleTabChange(tab.value)}
-              className={`cursor-pointer rounded-lg px-4 py-2 font-inter text-sm font-medium transition-colors ${
-                activeTab === tab.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-surface text-text-body hover:text-text-heading"
-              }`}
+              style={{
+                padding: "8px 16px",
+                fontSize: 12,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                border: "1px solid " + (activeTab === tab.value ? "var(--pearl)" : "var(--border)"),
+                color: activeTab === tab.value ? "var(--pearl)" : "var(--text-dim)",
+                background: activeTab === tab.value ? "oklch(0.92 0.02 90 / 0.05)" : "transparent",
+                borderRadius: 2,
+                cursor: "pointer",
+                transition: "all 150ms",
+              }}
             >
               {tab.label}
             </button>
@@ -161,23 +108,54 @@ export function DelegatedViewContent() {
           type="button"
           onClick={() => exportToCsv(entries, activeTab, decryptedValues)}
           disabled={entries.length === 0}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-surface-border bg-surface px-4 py-2 font-inter text-sm font-medium text-text-body backdrop-blur-sm transition-colors hover:text-text-heading disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Export current view as CSV"
+          style={{
+            padding: "8px 14px",
+            fontSize: 11,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            border: "1px solid var(--border)",
+            color: "var(--text-muted)",
+            background: "transparent",
+            borderRadius: 2,
+            cursor: entries.length === 0 ? "not-allowed" : "pointer",
+            opacity: entries.length === 0 ? 0.4 : 1,
+          }}
         >
-          <span aria-hidden="true" className="material-icons text-[18px]!">
-            download
-          </span>
-          <span className="hidden sm:inline">Export CSV</span>
+          Export CSV
         </button>
       </div>
 
       {/* Content */}
       {isLoading ? (
-        <TableSkeleton />
+        <div style={{ color: "var(--text-muted)", fontSize: 13, padding: "48px 0" }}>
+          Loading delegations…
+        </div>
       ) : error ? (
-        <ErrorState message={error} />
+        <div
+          style={{
+            padding: "48px 32px",
+            textAlign: "center",
+            border: "1px solid var(--red)",
+            background: "oklch(0.68 0.18 25 / 0.05)",
+          }}
+        >
+          <div style={{ color: "var(--red)", fontSize: 14 }}>Failed to load delegated view</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 8 }}>{error}</div>
+        </div>
       ) : entries.length === 0 ? (
-        <EmptyState tab={activeTab} />
+        <div
+          style={{
+            padding: "64px 32px",
+            textAlign: "center",
+            border: "1px dashed var(--border)",
+          }}
+        >
+          <div style={{ color: "var(--text-muted)", fontSize: 14 }}>
+            {activeTab === "shared"
+              ? "No one has shared handle access with you yet."
+              : "You haven't granted viewer access to anyone yet."}
+          </div>
+        </div>
       ) : (
         <>
           <DelegatedViewTable
@@ -188,60 +166,75 @@ export function DelegatedViewContent() {
             onDecrypt={decrypt}
           />
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between">
-            <span className="font-inter text-xs font-medium text-text-muted">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: 24,
+            }}
+          >
+            <span className="mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>
               Showing {paginated.length} of {entries.length} entries
             </span>
-
-            <div className="flex items-center gap-2">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                aria-label="Previous page"
-                className="cursor-pointer p-1 text-text-muted transition-colors hover:text-text-heading disabled:cursor-not-allowed disabled:opacity-30"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  color: page <= 1 ? "var(--text-muted)" : "var(--text)",
+                  padding: "4px 10px",
+                  cursor: page <= 1 ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  borderRadius: 2,
+                  opacity: page <= 1 ? 0.4 : 1,
+                }}
               >
-                <span
-                  aria-hidden="true"
-                  className="material-icons text-[24px]!"
-                >
-                  chevron_left
-                </span>
+                ←
               </button>
-
-              <span className="flex min-w-[30px] items-center justify-center rounded border border-surface-border bg-surface px-3 py-1 font-inter text-xs font-medium text-text-heading backdrop-blur-sm">
-                {page}
+              <span
+                className="mono"
+                style={{
+                  padding: "4px 12px",
+                  border: "1px solid var(--border)",
+                  fontSize: 12,
+                  borderRadius: 2,
+                  background: "var(--surface)",
+                }}
+              >
+                {page} / {totalPages}
               </span>
-
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                aria-label="Next page"
-                className="cursor-pointer p-1 text-text-muted transition-colors hover:text-text-heading disabled:cursor-not-allowed disabled:opacity-30"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  color: page >= totalPages ? "var(--text-muted)" : "var(--text)",
+                  padding: "4px 10px",
+                  cursor: page >= totalPages ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  borderRadius: 2,
+                  opacity: page >= totalPages ? 0.4 : 1,
+                }}
               >
-                <span
-                  aria-hidden="true"
-                  className="material-icons text-[24px]!"
-                >
-                  chevron_right
-                </span>
+                →
               </button>
             </div>
           </div>
         </>
       )}
 
-      {/* Dev mode */}
       {devMode && (
-        <div className="flex flex-col gap-4">
+        <div style={{ marginTop: 40, display: "flex", flexDirection: "column", gap: 16 }}>
           <InfoCard>
             The Delegated View reads <code className="font-mono text-xs">ViewerAdded</code> events
             from the NoxCompute contract, then resolves each handle to a token
-            via <code className="font-mono text-xs">confidentialBalanceOf</code> on
-            each cToken. If the handle matches the current balance, the grant is
-            marked <strong>Active</strong>; otherwise <strong>Outdated</strong>.
+            via <code className="font-mono text-xs">confidentialBalanceOf</code>.
           </InfoCard>
           <CodeSection
             code={activeTab === "shared" ? DEV_CODE_SHARED : DEV_CODE_GRANTS}

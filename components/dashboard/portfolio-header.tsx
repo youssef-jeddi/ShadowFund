@@ -1,8 +1,13 @@
 export function PortfolioHeader() {
   return (
-    <div className="px-5 py-[30px] md:px-10">
-      <h1 className="text-center font-mulish text-2xl font-bold leading-[36px] tracking-[-0.75px] text-text-heading md:text-left md:text-[30px]">
-        Portfolio Overview
+    <div style={{ padding: "48px 32px 24px", maxWidth: 1400, margin: "0 auto" }}>
+      <div className="eyebrow" style={{ marginBottom: 12 }}>Wallet · Assets</div>
+      <h1
+        className="display"
+        style={{ fontSize: 48, letterSpacing: "-0.025em", lineHeight: 1 }}
+      >
+        Portfolio
+        <span className="display-italic" style={{ color: "var(--pearl)" }}>.</span>
       </h1>
     </div>
   );

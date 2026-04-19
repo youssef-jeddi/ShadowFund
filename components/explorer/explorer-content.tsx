@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { ActivityTable } from "./activity-table";
 import { useActivityHistory } from "@/hooks/use-activity-history";
+import { Eyebrow } from "@/components/shadow-fund/primitives/eyebrow";
+import { SfTag } from "@/components/shadow-fund/primitives/sf-tag";
 import {
   ACTIVITY_TYPES,
   ACTIVITY_TYPE_CONFIG,
@@ -20,57 +22,6 @@ const FILTER_OPTIONS: { label: string; value: FilterValue }[] = [
     value: type as FilterValue,
   })),
 ];
-
-function TableSkeleton() {
-  return (
-    <div className="w-full overflow-hidden rounded-2xl border border-surface-border bg-surface backdrop-blur-sm">
-      <div className="divide-y divide-surface-border">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-6 px-6 py-5">
-            <div className="h-9 w-9 animate-pulse rounded-lg bg-surface-border" />
-            <div className="h-4 w-20 animate-pulse rounded bg-surface-border" />
-            <div className="h-4 w-16 animate-pulse rounded bg-surface-border" />
-            <div className="ml-auto h-4 w-24 animate-pulse rounded bg-surface-border" />
-            <div className="h-4 w-28 animate-pulse rounded bg-surface-border" />
-            <div className="h-4 w-16 animate-pulse rounded bg-surface-border" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-surface-border bg-surface py-16 backdrop-blur-sm">
-      <span aria-hidden="true" className="material-icons text-[48px]! text-text-muted/40">
-        receipt_long
-      </span>
-      <p className="mt-4 font-inter text-sm font-medium text-text-muted">
-        No transactions yet
-      </p>
-      <p className="mt-1 font-inter text-xs text-text-muted/60">
-        Wrap some tokens to get started
-      </p>
-    </div>
-  );
-}
-
-function ErrorState({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-red-500/20 bg-red-500/5 py-16">
-      <span aria-hidden="true" className="material-icons text-[48px]! text-red-400/60">
-        error_outline
-      </span>
-      <p className="mt-4 font-inter text-sm font-medium text-red-400">
-        Failed to load activity
-      </p>
-      <p className="mt-1 max-w-md text-center font-inter text-xs text-text-muted">
-        {message}
-      </p>
-    </div>
-  );
-}
 
 export function ExplorerContent() {
   const { entries, isLoading, error } = useActivityHistory();
@@ -97,84 +48,142 @@ export function ExplorerContent() {
   }
 
   return (
-    <div className="flex flex-col gap-6 px-5 py-6 md:gap-10 md:px-10 md:py-10 lg:px-[114px]">
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "56px 32px" }}>
       {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", marginBottom: 40 }}>
         <div>
-          <h1 className="font-anybody text-2xl font-bold leading-9 tracking-tight text-text-heading md:text-[30px]">
+          <Eyebrow>ShadowFund · On-chain events</Eyebrow>
+          <h1
+            className="display"
+            style={{ fontSize: 64, marginTop: 14, letterSpacing: "-0.028em", lineHeight: 1 }}
+          >
             Activity
+            <span className="display-italic" style={{ color: "var(--pearl)" }}>.</span>
           </h1>
-          <p className="mt-1 font-inter text-sm text-text-body md:mt-2">
-            Monitor your confidential transactions on the Arbitrum network.
+          <p style={{ color: "var(--text-dim)", marginTop: 10, fontSize: 15 }}>
+            Monitor your confidential transactions on the iExec Nox network.
           </p>
         </div>
 
-        <div className="flex w-full items-center gap-4 md:w-auto">
-          <span className="font-inter text-xs font-bold tracking-wider text-text-muted">
-            Filter By:
-          </span>
-          <div className="relative flex-1 md:flex-initial">
-            <select
-              value={filter}
-              onChange={(e) =>
-                handleFilterChange(e.target.value as FilterValue)
-              }
-              aria-label="Filter by action type"
-              className="w-full cursor-pointer appearance-none rounded-lg border border-surface-border bg-surface py-2 pl-4 pr-10 font-inter text-base font-medium text-text-heading backdrop-blur-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 md:w-auto md:text-sm"
-            >
-              {FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <span aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 material-icons text-[20px]! text-text-muted">
-              expand_more
-            </span>
-          </div>
+        {/* Filter */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="eyebrow">Filter</span>
+          <select
+            value={filter}
+            onChange={(e) => handleFilterChange(e.target.value as FilterValue)}
+            aria-label="Filter by action type"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              padding: "8px 12px",
+              fontSize: 12,
+              color: "var(--text)",
+              borderRadius: 2,
+              outline: "none",
+              cursor: "pointer",
+            }}
+          >
+            {FILTER_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} style={{ background: "var(--surface)" }}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
       {/* Content */}
       {isLoading ? (
-        <TableSkeleton />
+        <div style={{ color: "var(--text-muted)", fontSize: 13, padding: "48px 0" }}>
+          Loading activity…
+        </div>
       ) : error ? (
-        <ErrorState message={error} />
+        <div
+          style={{
+            padding: "48px 32px",
+            textAlign: "center",
+            border: "1px solid var(--red)",
+            background: "oklch(0.68 0.18 25 / 0.05)",
+          }}
+        >
+          <div style={{ color: "var(--red)", fontSize: 14 }}>Failed to load activity</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 8 }}>{error}</div>
+        </div>
       ) : filtered.length === 0 ? (
-        <EmptyState />
+        <div
+          style={{
+            padding: "64px 32px",
+            textAlign: "center",
+            border: "1px dashed var(--border)",
+          }}
+        >
+          <div style={{ color: "var(--text-muted)", fontSize: 14 }}>No transactions yet</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 6 }}>
+            Wrap some tokens to get started
+          </div>
+        </div>
       ) : (
         <>
           <ActivityTable entries={paginated} />
 
           {/* Pagination */}
-          <div className="flex items-center justify-between">
-            <span className="font-inter text-xs font-medium text-text-muted">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: 24,
+            }}
+          >
+            <span className="mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>
               Showing {paginated.length} of {filtered.length} transactions
             </span>
-
-            <div className="flex items-center gap-2">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                aria-label="Previous page"
-                className="cursor-pointer p-1 text-text-muted transition-colors hover:text-text-heading disabled:cursor-not-allowed disabled:opacity-30"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  color: page <= 1 ? "var(--text-muted)" : "var(--text)",
+                  padding: "4px 10px",
+                  cursor: page <= 1 ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  borderRadius: 2,
+                  opacity: page <= 1 ? 0.4 : 1,
+                }}
               >
-                <span aria-hidden="true" className="material-icons text-[24px]!">chevron_left</span>
+                ←
               </button>
-
-              <span className="flex min-w-[30px] items-center justify-center rounded border border-surface-border bg-surface px-3 py-1 font-inter text-xs font-medium text-text-heading backdrop-blur-sm">
-                {page}
+              <span
+                className="mono"
+                style={{
+                  padding: "4px 12px",
+                  border: "1px solid var(--border)",
+                  fontSize: 12,
+                  borderRadius: 2,
+                  background: "var(--surface)",
+                }}
+              >
+                {page} / {totalPages}
               </span>
-
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                aria-label="Next page"
-                className="cursor-pointer p-1 text-text-muted transition-colors hover:text-text-heading disabled:cursor-not-allowed disabled:opacity-30"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  color: page >= totalPages ? "var(--text-muted)" : "var(--text)",
+                  padding: "4px 10px",
+                  cursor: page >= totalPages ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  borderRadius: 2,
+                  opacity: page >= totalPages ? 0.4 : 1,
+                }}
               >
-                <span aria-hidden="true" className="material-icons text-[24px]!">chevron_right</span>
+                →
               </button>
             </div>
           </div>

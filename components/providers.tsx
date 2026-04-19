@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
 import { ThemeProvider } from "@/components/layout/theme-provider";
-import { FaucetModalProvider } from "@/components/modals/faucet-modal-provider";
 import { WrapModalProvider } from "@/components/modals/wrap-modal-provider";
 import { TransferModalProvider } from "@/components/modals/transfer-modal-provider";
 import { SelectiveDisclosureModalProvider } from "@/components/modals/selective-disclosure-modal-provider";
@@ -101,15 +100,13 @@ export function Providers({ children, cookies }: ProvidersProps) {
         <QueryClientProvider client={queryClient}>
           <AppKitThemeSync />
           <TooltipProvider>
-            <FaucetModalProvider>
-              <WrapModalProvider>
-                <TransferModalProvider>
-                  <SelectiveDisclosureModalProvider>
-                    {children}
-                  </SelectiveDisclosureModalProvider>
-                </TransferModalProvider>
-              </WrapModalProvider>
-            </FaucetModalProvider>
+            <WrapModalProvider>
+              <TransferModalProvider>
+                <SelectiveDisclosureModalProvider>
+                  {children}
+                </SelectiveDisclosureModalProvider>
+              </TransferModalProvider>
+            </WrapModalProvider>
           </TooltipProvider>
         </QueryClientProvider>
       </WagmiProvider>

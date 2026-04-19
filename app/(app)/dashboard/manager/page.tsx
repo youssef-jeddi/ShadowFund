@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function ManagerDashboardPage() {
   return (
-    <div className="min-h-[60vh] px-4 py-8 md:px-8 md:py-10">
+    <div style={{ minHeight: "60vh" }}>
       <ManagerDashboardContent />
     </div>
   );

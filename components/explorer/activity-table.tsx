@@ -1,154 +1,95 @@
 import type { ActivityEntry } from "@/lib/activity";
 import { ACTIVITY_TYPE_CONFIG } from "@/lib/activity";
 import { ARBISCAN_BASE_URL } from "@/lib/config";
-
-const COLUMNS = ["Action", "Asset", "Amount", "Time", "Details"] as const;
+import { SfTag } from "@/components/shadow-fund/primitives/sf-tag";
 
 interface ActivityTableProps {
   entries: ActivityEntry[];
 }
 
-export function ActivityTable({ entries }: ActivityTableProps) {
-  return (
-    <>
-      {/* Mobile: card layout */}
-      <div className="flex flex-col gap-3 md:hidden">
-        {entries.map((entry) => (
-          <ActivityCard key={entry.id} entry={entry} />
-        ))}
-      </div>
-
-      {/* Desktop: table layout */}
-      <div className="hidden w-full overflow-hidden rounded-2xl border border-surface-border bg-surface backdrop-blur-sm md:block">
-        <table className="w-full">
-          <caption className="sr-only">Transaction history</caption>
-          <thead>
-            <tr className="border-b border-surface-border">
-              {COLUMNS.map((col) => (
-                <th
-                  key={col}
-                  scope="col"
-                  className={`px-6 py-4 font-inter text-xs font-bold uppercase tracking-wider text-text-muted ${
-                    col === "Amount" || col === "Details"
-                      ? "text-right"
-                      : col === "Time"
-                        ? "text-center"
-                        : "text-left"
-                  }`}
-                >
-                  {col}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-surface-border">
-            {entries.map((entry) => (
-              <ActivityTableRow key={entry.id} entry={entry} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
+function activityTone(type: string): "green" | "accent" | "red" | "neutral" | "encrypted" {
+  if (type === "wrap") return "green";
+  if (type === "unwrap") return "accent";
+  if (type === "transfer") return "neutral";
+  if (type === "grant_access" || type === "revoke_access") return "encrypted";
+  return "neutral";
 }
 
-function ActivityCard({ entry }: { entry: ActivityEntry }) {
-  const config = ACTIVITY_TYPE_CONFIG[entry.type];
-
+export function ActivityTable({ entries }: ActivityTableProps) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface p-4 backdrop-blur-sm">
-      {/* Row 1: Action + Asset */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className={`flex size-8 items-center justify-center rounded-lg ${config.iconBg}`}
-          >
-            <span
-              aria-hidden="true"
-              className={`material-icons text-[16px]! ${config.iconColor}`}
-            >
-              {config.icon}
-            </span>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
+        background: "var(--border)",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
+          background: "var(--bg-2)",
+          padding: "14px 20px",
+        }}
+      >
+        {["Action", "Asset", "Amount", "Time", "Details"].map((col) => (
+          <div key={col} className="eyebrow">
+            {col}
           </div>
-          <span className="font-inter text-sm font-bold text-text-heading">
-            {config.label}
-          </span>
-        </div>
-        <span className="font-inter text-sm font-medium text-text-body">
-          {entry.asset}
-        </span>
+        ))}
       </div>
-
-      {/* Row 2: Amount + Time + Arbiscan */}
-      <div className="mt-3 flex items-center justify-between border-t border-surface-border pt-3">
-        <span className="font-inter text-sm font-medium text-text-heading">
-          {entry.amount}
-        </span>
-        <span className="font-inter text-xs text-text-muted">
-          {entry.timestamp}
-        </span>
-        <a
-          href={`${ARBISCAN_BASE_URL}/tx/${entry.txHash}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-inter text-xs font-bold text-primary transition-colors hover:text-primary-hover"
-        >
-          Arbiscan
-          <span aria-hidden="true" className="material-icons text-[14px]!">north_east</span>
-        </a>
-      </div>
+      {entries.map((entry) => (
+        <ActivityRow key={entry.id} entry={entry} />
+      ))}
     </div>
   );
 }
 
-function ActivityTableRow({ entry }: { entry: ActivityEntry }) {
+function ActivityRow({ entry }: { entry: ActivityEntry }) {
   const config = ACTIVITY_TYPE_CONFIG[entry.type];
 
   return (
-    <tr className="bg-surface/50 transition-colors hover:bg-surface">
-      <td className="px-6 py-5">
-        <div className="flex items-center gap-3">
-          <div
-            className={`flex size-9 items-center justify-center rounded-lg ${config.iconBg}`}
-          >
-            <span
-              aria-hidden="true"
-              className={`material-icons text-[18px]! ${config.iconColor}`}
-            >
-              {config.icon}
-            </span>
-          </div>
-          <span className="font-inter text-sm font-bold text-text-heading">
-            {config.label}
-          </span>
-        </div>
-      </td>
-      <td className="px-6 py-5">
-        <span className="font-inter text-sm font-medium text-text-body">
-          {entry.asset}
-        </span>
-      </td>
-      <td className="px-6 py-5 text-right">
-        <span className="font-inter text-sm font-medium text-text-heading">
-          {entry.amount}
-        </span>
-      </td>
-      <td className="px-6 py-5 text-center">
-        <span className="font-inter text-sm text-text-muted">
-          {entry.timestamp}
-        </span>
-      </td>
-      <td className="px-6 py-5 text-right">
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
+        alignItems: "center",
+        padding: "18px 20px",
+        background: "var(--surface)",
+        transition: "background 150ms",
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--surface-2)"; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--surface)"; }}
+    >
+      {/* Action */}
+      <div>
+        <SfTag tone={activityTone(entry.type)}>{config.label}</SfTag>
+      </div>
+      {/* Asset */}
+      <div className="mono" style={{ fontSize: 13 }}>{entry.asset}</div>
+      {/* Amount */}
+      <div className="mono tabular" style={{ fontSize: 13 }}>{entry.amount}</div>
+      {/* Time */}
+      <div className="mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>{entry.timestamp}</div>
+      {/* Details */}
+      <div>
         <a
           href={`${ARBISCAN_BASE_URL}/tx/${entry.txHash}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-inter text-xs font-bold text-primary transition-colors hover:text-primary-hover"
+          style={{
+            fontSize: 11,
+            color: "var(--pearl)",
+            textDecoration: "none",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
         >
-          Arbiscan
-          <span aria-hidden="true" className="material-icons text-[14px]!">north_east</span>
+          Arbiscan ↗
         </a>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }

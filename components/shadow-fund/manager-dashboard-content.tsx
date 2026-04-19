@@ -3,12 +3,17 @@
 import { useState, useCallback } from "react";
 import { useAccount, useReadContract } from "wagmi";
 import { formatUnits } from "viem";
+import Link from "next/link";
 import { shadowFundVaultAbi } from "@/lib/shadow-fund-abi";
 import { CONTRACTS, ZERO_HANDLE } from "@/lib/contracts";
 import { useHandleClient } from "@/hooks/use-handle-client";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Eyebrow } from "@/components/shadow-fund/primitives/eyebrow";
+import { SfButton } from "@/components/shadow-fund/primitives/sf-button";
+import { SfCard } from "@/components/shadow-fund/primitives/sf-card";
+import { SfInput } from "@/components/shadow-fund/primitives/sf-input";
+import { StatCell } from "@/components/shadow-fund/primitives/stat-cell";
+import { KV } from "@/components/shadow-fund/primitives/kv";
+import { Scramble } from "@/components/shadow-fund/primitives/scramble";
 import {
   StrategySliders,
   type StrategyAllocation,
@@ -31,9 +36,6 @@ const DEFAULT_ALLOCATION: StrategyAllocation = {
   fixedBps: 4000,
 };
 
-const SLOT_LABELS = ["Aave USDC", "Fixed 8%"] as const;
-const SLOT_COLORS = ["#10b981", "#f59e0b"] as const;
-
 const vaultAddress = CONTRACTS.SHADOW_FUND_VAULT as `0x${string}`;
 
 export function ManagerDashboardContent() {
@@ -46,14 +48,13 @@ export function ManagerDashboardContent() {
   );
 
   const [showCreate, setShowCreate] = useState(false);
+  const [createStep, setCreateStep] = useState(0);
   const [fundName, setFundName] = useState("");
   const [description, setDescription] = useState("");
   const [feeBps, setFeeBps] = useState("1000");
-  const [newAllocation, setNewAllocation] =
-    useState<StrategyAllocation>(DEFAULT_ALLOCATION);
+  const [newAllocation, setNewAllocation] = useState<StrategyAllocation>(DEFAULT_ALLOCATION);
 
-  const allocationValid =
-    newAllocation.aaveUsdcBps + newAllocation.fixedBps === 10_000;
+  const allocationValid = newAllocation.aaveUsdcBps + newAllocation.fixedBps === 10_000;
 
   const handleCreate = useCallback(async () => {
     const id = await createFundHook.createFund(
@@ -64,6 +65,7 @@ export function ManagerDashboardContent() {
     );
     if (id !== null) {
       setShowCreate(false);
+      setCreateStep(0);
       setFundName("");
       setDescription("");
       setNewAllocation(DEFAULT_ALLOCATION);
@@ -72,117 +74,323 @@ export function ManagerDashboardContent() {
 
   if (!address) {
     return (
-      <div className="flex flex-col items-center gap-4 py-20 text-center">
-        <p className="text-text-body">Connect your wallet to manage funds.</p>
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "80px 32px", textAlign: "center" }}>
+        <div style={{ color: "var(--text-muted)" }}>Connect your wallet to manage funds.</div>
       </div>
     );
   }
 
+  const WIZARD_STEPS = ["Identity", "Strategy", "Economics", "Review"];
+
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex items-start justify-between gap-4">
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "56px 32px" }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "end",
+          paddingBottom: 32,
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
         <div>
-          <h1 className="text-2xl font-bold text-text-heading md:text-3xl">
-            Manager Dashboard
+          <Eyebrow dot>Manager Console · {truncateAddress(address)}</Eyebrow>
+          <h1
+            className="display"
+            style={{ fontSize: 64, marginTop: 14, letterSpacing: "-0.028em", lineHeight: 1 }}
+          >
+            Command{" "}
+            <span className="display-italic" style={{ color: "var(--pearl)" }}>
+              deck
+            </span>
           </h1>
-          <p className="mt-1 text-sm text-text-muted">
-            {truncateAddress(address)} · Strategy is public · Depositor positions are private
-          </p>
         </div>
-        <Button
-          onClick={() => setShowCreate(!showCreate)}
-          style={{ background: "var(--sf-violet)", color: "#fff" }}
+        <SfButton
+          variant="primary"
+          onClick={() => {
+            setShowCreate(!showCreate);
+            setCreateStep(0);
+          }}
         >
-          {showCreate ? "Cancel" : "Create Fund"}
-        </Button>
+          {showCreate ? "Cancel" : "+ New Vault"}
+        </SfButton>
       </div>
 
+      {/* Vault count */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr" }}>
+        <StatCell label="Your Vaults" value={myFunds.length.toString()} sub="managed by you" last noBorderBottom />
+      </div>
+
+      {/* Create wizard */}
       {showCreate && (
-        <Card
-          className="rounded-2xl border"
-          style={{ background: "var(--sf-card-bg)", borderColor: "var(--sf-card-border)" }}
-        >
-          <CardHeader className="px-5 pt-5 pb-0">
-            <h2 className="text-base font-semibold text-text-heading">New Fund</h2>
-            <p className="text-xs text-text-muted mt-1">
-              Pick a public 2-way allocation between Aave USDC and the Fixed 8% pool.
-              You can change it any time (until a deploy is mid-flight).
-            </p>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 px-5 py-4">
-            <Field label="Fund Name">
-              <input
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
-                style={{ borderColor: "var(--sf-card-border)" }}
-                placeholder="e.g. Shadow Alpha Fund"
-                value={fundName}
-                onChange={(e) => setFundName(e.target.value)}
-              />
-            </Field>
-            <Field label="Description">
-              <textarea
-                className="w-full resize-none rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
-                style={{ borderColor: "var(--sf-card-border)" }}
-                placeholder="Short description of your strategy"
-                rows={2}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </Field>
-            <Field label={`Performance Fee (basis points — ${(Number(feeBps) / 100).toFixed(2)}%)`}>
-              <input
-                type="number"
-                min={0}
-                max={5000}
-                step={100}
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
-                style={{ borderColor: "var(--sf-card-border)" }}
-                value={feeBps}
-                onChange={(e) => setFeeBps(e.target.value)}
-              />
-              <p className="mt-1 text-xs text-text-muted">Display-only — not deducted on-chain.</p>
-            </Field>
-            <Field label="Allocation (public)">
-              <StrategySliders value={newAllocation} onChange={setNewAllocation} />
-            </Field>
-            <Button
-              onClick={handleCreate}
-              disabled={!fundName || !allocationValid || createFundHook.step === "writing"}
-              className="self-end"
-              style={{ background: "var(--sf-violet)", color: "#fff" }}
-            >
-              {createFundHook.step === "writing" ? "Creating..." : "Create Fund"}
-            </Button>
-            {createFundHook.error && (
-              <p className="text-sm text-red-400">{createFundHook.error}</p>
-            )}
-            {createFundHook.step === "confirmed" && (
-              <p className="text-sm text-emerald-400">
-                Fund created! ID: {createFundHook.fundId?.toString()}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <div style={{ marginTop: 40, paddingTop: 32, borderTop: "1px solid var(--border)" }}>
+          <Eyebrow>Manager Console · New Vault</Eyebrow>
+          <h2
+            className="display"
+            style={{ fontSize: 36, marginTop: 12, letterSpacing: "-0.025em", lineHeight: 1 }}
+          >
+            Launch a{" "}
+            <span className="display-italic" style={{ color: "var(--pearl)" }}>
+              confidential vault
+            </span>
+          </h2>
+          {/* Step tabs */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${WIZARD_STEPS.length}, 1fr)`,
+              marginTop: 28,
+              background: "var(--border)",
+              gap: 1,
+            }}
+          >
+            {WIZARD_STEPS.map((s, i) => (
+              <button
+                key={s}
+                onClick={() => i < createStep && setCreateStep(i)}
+                style={{
+                  padding: "16px 18px",
+                  textAlign: "left" as const,
+                  background: i === createStep ? "var(--surface-2)" : "var(--surface)",
+                  cursor: i < createStep ? "pointer" : "default",
+                  border: "none",
+                  borderTop: i === createStep ? "2px solid var(--pearl)" : "2px solid transparent",
+                }}
+              >
+                <div
+                  className="mono"
+                  style={{ fontSize: 10, color: i <= createStep ? "var(--pearl)" : "var(--text-muted)" }}
+                >
+                  0{i + 1}
+                </div>
+                <div style={{ fontSize: 13, color: i <= createStep ? "var(--text)" : "var(--text-muted)", marginTop: 4 }}>
+                  {s}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 40, marginTop: 32 }}>
+            <div>
+              {createStep === 0 && (
+                <div>
+                  <h3 className="display" style={{ fontSize: 28 }}>Vault identity</h3>
+                  <div style={{ marginBottom: 20, marginTop: 20 }}>
+                    <label className="eyebrow" style={{ display: "block", marginBottom: 8 }}>Name</label>
+                    <SfInput
+                      placeholder="e.g. Shadow Alpha Fund"
+                      value={fundName}
+                      onChange={(e) => setFundName(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <label className="eyebrow" style={{ display: "block", marginBottom: 8 }}>Description</label>
+                    <textarea
+                      placeholder="Short description of your strategy"
+                      rows={3}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      style={{
+                        width: "100%",
+                        background: "var(--bg-2)",
+                        border: "1px solid var(--border)",
+                        padding: "12px 14px",
+                        fontSize: 14,
+                        color: "var(--text)",
+                        outline: "none",
+                        borderRadius: 2,
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {createStep === 1 && (
+                <div>
+                  <h3 className="display" style={{ fontSize: 28 }}>Strategy</h3>
+                  <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 8, marginBottom: 20 }}>
+                    Your strategy is public. Depositors need to know what they&apos;re underwriting.
+                  </p>
+                  <div
+                    style={{
+                      padding: 20,
+                      background: "var(--bg-2)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <StrategySliders value={newAllocation} onChange={setNewAllocation} />
+                  </div>
+                  {!allocationValid && (
+                    <div style={{ marginTop: 12, fontSize: 12, color: "var(--red)" }}>
+                      Allocation must sum to 100%.
+                    </div>
+                  )}
+                </div>
+              )}
+              {createStep === 2 && (
+                <div>
+                  <h3 className="display" style={{ fontSize: 28 }}>Economics</h3>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 20,
+                      marginTop: 20,
+                    }}
+                  >
+                    <div>
+                      <label className="eyebrow" style={{ display: "block", marginBottom: 8 }}>
+                        Perf fee (bps — {(Number(feeBps) / 100).toFixed(2)}%)
+                      </label>
+                      <SfInput
+                        type="number"
+                        min={0}
+                        max={5000}
+                        step={100}
+                        mono
+                        value={feeBps}
+                        onChange={(e) => setFeeBps(e.target.value)}
+                      />
+                      <p style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+                        Display-only — not deducted on-chain.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {createStep === 3 && (
+                <div>
+                  <h3 className="display" style={{ fontSize: 28 }}>Review & deploy</h3>
+                  <div style={{ border: "1px solid var(--border)", marginTop: 20 }}>
+                    <KV label="Name" value={fundName} />
+                    <KV
+                      label="Strategy"
+                      value={
+                        <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
+                          Aave {newAllocation.aaveUsdcBps / 100}% · Fixed {newAllocation.fixedBps / 100}%
+                        </span>
+                      }
+                    />
+                    <KV
+                      label="Perf fee"
+                      value={
+                        <span className="mono">{(Number(feeBps) / 100).toFixed(2)}%</span>
+                      }
+                      last
+                    />
+                  </div>
+                  {createFundHook.error && (
+                    <div style={{ marginTop: 12, fontSize: 12, color: "var(--red)" }}>
+                      {createFundHook.error}
+                    </div>
+                  )}
+                  {createFundHook.step === "confirmed" && (
+                    <div style={{ marginTop: 12, fontSize: 12, color: "var(--green)" }}>
+                      Fund created! ID: {createFundHook.fundId?.toString()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginTop: 32,
+                  paddingTop: 20,
+                  borderTop: "1px solid var(--border)",
+                }}
+              >
+                <SfButton
+                  variant="ghost"
+                  onClick={() => (createStep > 0 ? setCreateStep(createStep - 1) : setShowCreate(false))}
+                >
+                  {createStep > 0 ? "← Back" : "Cancel"}
+                </SfButton>
+                {createStep < 3 ? (
+                  <SfButton
+                    variant="primary"
+                    disabled={createStep === 1 && !allocationValid}
+                    onClick={() => setCreateStep(createStep + 1)}
+                  >
+                    Continue →
+                  </SfButton>
+                ) : (
+                  <SfButton
+                    variant="primary"
+                    disabled={!fundName || !allocationValid || createFundHook.step === "writing"}
+                    onClick={handleCreate}
+                  >
+                    {createFundHook.step === "writing" ? "Creating…" : "Deploy Vault"}
+                  </SfButton>
+                )}
+              </div>
+            </div>
+
+            {/* Preview card */}
+            <SfCard style={{ padding: 24, alignSelf: "start" }}>
+              <Eyebrow>Preview</Eyebrow>
+              <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 2,
+                    background: "linear-gradient(135deg, var(--pearl), var(--pearl-deep))",
+                  }}
+                />
+                <div>
+                  <div style={{ fontSize: 14 }}>{fundName || "Untitled Vault"}</div>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                    manager · {truncateAddress(address)}
+                  </div>
+                </div>
+              </div>
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: 14,
+                  background: "var(--bg-2)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div className="eyebrow">Strategy · public</div>
+                <div className="mono" style={{ fontSize: 11, marginTop: 6, color: "var(--text-dim)" }}>
+                  Aave {newAllocation.aaveUsdcBps / 100}% · Fixed {newAllocation.fixedBps / 100}%
+                </div>
+              </div>
+            </SfCard>
+          </div>
+        </div>
       )}
 
-      {isLoading ? (
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-80 rounded-2xl" />
-        </div>
-      ) : myFunds.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center"
-          style={{ borderColor: "var(--sf-card-border)" }}>
-          <span className="text-4xl">🌑</span>
-          <p className="font-semibold text-text-heading">No funds yet</p>
-          <p className="text-sm text-text-muted">Create your first fund above.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-10">
-          {myFunds.map((fund) => (
-            <ManagerFundSection key={fund.fundId.toString()} fund={fund} />
-          ))}
-        </div>
-      )}
+      {/* Fund list */}
+      <div style={{ marginTop: 48 }}>
+        {isLoading ? (
+          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading funds…</div>
+        ) : myFunds.length === 0 ? (
+          <div
+            style={{
+              padding: "64px 32px",
+              textAlign: "center",
+              border: "1px dashed var(--border)",
+            }}
+          >
+            <div style={{ fontSize: 32, marginBottom: 16, color: "var(--text-muted)" }}>◉</div>
+            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>No funds yet</div>
+            <div style={{ color: "var(--text-muted)", marginBottom: 24 }}>
+              Create your first confidential fund above.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
+            {myFunds.map((fund) => (
+              <ManagerFundSection key={fund.fundId.toString()} fund={fund} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -193,15 +401,11 @@ function ManagerFundSection({ fund }: { fund: FundMetadata }) {
   const chainGpt = useChainGptAnalysis();
 
   const [aaveBps, fixedBps] = fund.allocationBps;
-  const blendedApyBps =
-    (aaveBps * metrics.apys[0] + fixedBps * metrics.apys[1]) / 10_000;
+  const blendedApyBps = (aaveBps * metrics.apys[0] + fixedBps * metrics.apys[1]) / 10_000;
   const blendedApyPct = (blendedApyBps / 100).toFixed(2);
 
-  const fundAgeHours = Math.floor(
-    (Date.now() / 1000 - Number(fund.createdAt)) / 3600,
-  );
-  const totalTvlUsdc =
-    Number(formatUnits(detail?.totalDeployed ?? 0n, 6));
+  const fundAgeHours = Math.floor((Date.now() / 1000 - Number(fund.createdAt)) / 3600);
+  const totalTvlUsdc = Number(formatUnits(detail?.totalDeployed ?? 0n, 6));
 
   const runAnalyze = useCallback(() => {
     chainGpt.analyze({
@@ -213,61 +417,90 @@ function ManagerFundSection({ fund }: { fund: FundMetadata }) {
       depositorCount: Number(fund.depositorCount),
       fundAgeHours,
     });
-  }, [
-    chainGpt,
-    fund.name,
-    aaveBps,
-    fixedBps,
-    metrics.apys,
-    metrics.totalDeployed,
-    totalTvlUsdc,
-    fund.depositorCount,
-    fundAgeHours,
-  ]);
+  }, [chainGpt, fund.name, aaveBps, fixedBps, metrics.apys, metrics.totalDeployed, totalTvlUsdc, fund.depositorCount, fundAgeHours]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Fund header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end" }}>
         <div>
-          <h2 className="text-lg font-semibold text-text-heading">{fund.name}</h2>
-          <p className="text-xs text-text-muted">
-            Fund #{fund.fundId.toString()} · {fund.depositorCount.toString()} depositors ·{" "}
-            {(Number(fund.performanceFeeBps) / 100).toFixed(2)}% fee
-          </p>
+          <Eyebrow>Fund #{fund.fundId.toString()}</Eyebrow>
+          <h2
+            className="display"
+            style={{ fontSize: 40, marginTop: 8, letterSpacing: "-0.02em", lineHeight: 1 }}
+          >
+            {fund.name}
+            <span className="display-italic" style={{ color: "var(--pearl)" }}>
+              .
+            </span>
+          </h2>
         </div>
-        <span
-          className="rounded-full px-2.5 py-0.5 text-xs font-medium"
-          style={{
-            background: "var(--sf-violet-subtle)",
-            color: "var(--sf-violet-text)",
-          }}
-        >
-          Strategy public · Positions private
-        </span>
+        <Link href={`/fund/${fund.fundId}`}>
+          <SfButton variant="ghost">View detail →</SfButton>
+        </Link>
       </div>
 
-      <FundOverviewCard fund={fund} blendedApyPct={blendedApyPct} />
-      <FundActionsCard fund={fund} />
-      <ChainGptAnalysisPanel
-        analysis={chainGpt.analysis}
-        isLoading={chainGpt.isLoading}
-        error={chainGpt.error}
-        onAnalyze={runAnalyze}
-        vaultAddress={vaultAddress}
-      />
+      {/* Stats row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", border: "1px solid var(--border)", background: "var(--surface)" }}>
+        <StatCell
+          label="Depositors"
+          value={fund.depositorCount.toString()}
+          sub="balances sealed"
+          noBorderBottom
+        />
+        <StatCell
+          label="Deployed"
+          value={`$${Number(formatUnits(metrics.totalDeployed, 6)).toFixed(6)}`}
+          sub="cUSDC"
+          noBorderBottom
+        />
+        <StatCell
+          label="Blended APY"
+          value={Number(blendedApyPct) > 0 ? blendedApyPct + "%" : "—"}
+          tone="green"
+          noBorderBottom
+        />
+        <StatCell
+          label="Perf fee"
+          value={`${(Number(fund.performanceFeeBps) / 100).toFixed(2)}%`}
+          noBorderBottom
+          last
+        />
+      </div>
+
+      {/* 2-col body */}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24 }}>
+        {/* Left */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <FundCapitalCard fund={fund} metrics={metrics} blendedApyPct={blendedApyPct} />
+          <FundActionsCard fund={fund} metrics={metrics} />
+        </div>
+        {/* Right */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <FundInfoCard fund={fund} metrics={metrics} />
+          <ChainGptAnalysisPanel
+            analysis={chainGpt.analysis}
+            isLoading={chainGpt.isLoading}
+            error={chainGpt.error}
+            onAnalyze={runAnalyze}
+            vaultAddress={vaultAddress}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 
-function FundOverviewCard({
+function FundCapitalCard({
   fund,
+  metrics,
   blendedApyPct,
 }: {
   fund: FundMetadata;
+  metrics: ReturnType<typeof useSubVaultMetrics>["metrics"];
   blendedApyPct: string;
 }) {
   const { handleClient } = useHandleClient();
-  const { metrics } = useSubVaultMetrics(fund.fundId);
 
   const { data: totalAssetsHandle } = useReadContract({
     address: vaultAddress,
@@ -282,22 +515,15 @@ function FundOverviewCard({
   const [tvlError, setTvlError] = useState<string | null>(null);
 
   const decryptTvl = useCallback(async () => {
-    if (!handleClient) {
-      setTvlError("Handle client not ready");
-      return;
-    }
+    if (!handleClient) { setTvlError("Handle client not ready"); return; }
     const handle = totalAssetsHandle as `0x${string}` | undefined;
-    if (!handle || handle === ZERO_HANDLE) {
-      setTvlDecrypted(0n);
-      return;
-    }
+    if (!handle || handle === ZERO_HANDLE) { setTvlDecrypted(0n); return; }
     setTvlDecrypting(true);
     setTvlError(null);
     try {
       const result = await handleClient.decrypt(handle);
       const raw = (result as { value?: unknown })?.value ?? result;
-      const value = typeof raw === "bigint" ? raw : BigInt(String(raw));
-      setTvlDecrypted(value);
+      setTvlDecrypted(typeof raw === "bigint" ? raw : BigInt(String(raw)));
     } catch (err) {
       setTvlError(err instanceof Error ? err.message : "Decryption failed");
     } finally {
@@ -308,78 +534,89 @@ function FundOverviewCard({
   const [aaveBps, fixedBps] = fund.allocationBps;
 
   return (
-    <SectionCard title="Fund Overview" subtitle="Public strategy · Encrypted aggregates (manager-only decrypt)">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Stat label="Depositors" value={fund.depositorCount.toString()} />
-          <Stat
-            label="Deployed"
-            value={`${formatUnits(metrics.totalDeployed, 6)} USDC`}
-          />
-          <Stat label="Blended APY" value={`${blendedApyPct}%`} />
-          <div
-            className="flex items-center justify-between rounded-xl border px-3 py-2"
-            style={{
-              borderColor: "var(--sf-violet-border)",
-              background: "var(--sf-violet-subtle)",
-            }}
-          >
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase tracking-wide text-text-muted">
-                Fund TVL (encrypted — manager only)
-              </span>
-              <span className="text-xs font-semibold text-text-heading">
-                {tvlDecrypted !== null
-                  ? `${formatUnits(tvlDecrypted, 6)} cUSDC`
-                  : "●●●●●"}
-              </span>
-              {tvlError && <span className="text-[10px] text-red-400">{tvlError}</span>}
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs"
-              style={{ borderColor: "var(--sf-violet-border)", color: "var(--sf-violet-text)" }}
-              disabled={tvlDecrypting}
-              onClick={decryptTvl}
-            >
-              {tvlDecrypting ? "..." : "Decrypt"}
-            </Button>
-          </div>
-        </div>
+    <SfCard style={{ padding: 28 }}>
+      <Eyebrow>§ Capital</Eyebrow>
+      <h3 className="display" style={{ fontSize: 24, marginTop: 6 }}>
+        Capital overview
+      </h3>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-text-muted">
-            Allocation (public)
-          </span>
-          <AllocationBars allocation={[aaveBps, fixedBps]} apys={metrics.apys} />
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {SLOT_LABELS.map((label, i) => (
-              <div
-                key={label}
-                className="flex flex-col gap-0.5 rounded-xl px-3 py-2"
-                style={{ background: "var(--surface)", border: "1px solid var(--surface-border)" }}
-              >
-                <span className="text-[10px] uppercase tracking-wide text-text-muted">
-                  {label}
-                </span>
-                <span className="text-xs font-medium" style={{ color: SLOT_COLORS[i] }}>
-                  {(metrics.apys[i] / 100).toFixed(2)}% APY
-                </span>
-                <span className="text-[10px] text-text-muted">
-                  Deployed: {formatUnits(metrics.values[i], 6)} USDC
-                </span>
-              </div>
-            ))}
+      {/* TVL decrypt */}
+      <div
+        style={{
+          marginTop: 20,
+          padding: 16,
+          background: "var(--bg-2)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div className="eyebrow" style={{ color: "var(--pearl)", marginBottom: 8 }}>
+              ◉ Fund TVL (manager-only decrypt)
+            </div>
+            <div className="display" style={{ fontSize: 32 }}>
+              <Scramble
+                value={tvlDecrypted !== null ? (Number(formatUnits(tvlDecrypted, 6))).toFixed(6) : "0.000000"}
+                length={12}
+                resolved={!tvlDecrypting && tvlDecrypted !== null}
+                prefix="$"
+              />
+            </div>
+            {tvlError && <div style={{ fontSize: 11, color: "var(--red)", marginTop: 6 }}>{tvlError}</div>}
           </div>
+          <SfButton
+            variant="secondary"
+            size="sm"
+            disabled={tvlDecrypting}
+            onClick={decryptTvl}
+          >
+            {tvlDecrypting ? "Decrypting…" : "Decrypt TVL"}
+          </SfButton>
         </div>
       </div>
-    </SectionCard>
+
+      {/* Allocation bars */}
+      <div style={{ marginTop: 20 }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Allocation · public</div>
+        {[
+          { label: "Aave USDC", bps: aaveBps, apy: metrics.apys[0] / 100, color: "var(--green)" },
+          { label: "Fixed 8%", bps: fixedBps, apy: metrics.apys[1] / 100, color: "var(--pearl-dim)" },
+        ].map((slot) => (
+          <div key={slot.label} style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12 }}>
+              <span style={{ color: slot.color }}>{slot.label}</span>
+              <span className="mono" style={{ color: "var(--text-muted)" }}>
+                {slot.apy.toFixed(2)}% APY · {slot.bps / 100}%
+              </span>
+            </div>
+            <div style={{ height: 4, background: "var(--surface-2)", borderRadius: 2 }}>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${slot.bps / 100}%`,
+                  background: slot.color,
+                  borderRadius: 2,
+                  transition: "width 600ms ease-out",
+                }}
+              />
+            </div>
+            <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+              ${Number(formatUnits(metrics.values[aaveBps === slot.bps ? 0 : 1], 6)).toFixed(6)} deployed
+            </div>
+          </div>
+        ))}
+      </div>
+    </SfCard>
   );
 }
 
-function FundActionsCard({ fund }: { fund: FundMetadata }) {
-  const { metrics } = useSubVaultMetrics(fund.fundId);
+function FundActionsCard({
+  fund,
+  metrics,
+}: {
+  fund: FundMetadata;
+  metrics: ReturnType<typeof useSubVaultMetrics>["metrics"];
+}) {
   const deployHook = useDeployCapital(fund.fundId);
   const withdrawHook = useWithdrawCapital();
   const processRedeem = useProcessRedeem();
@@ -392,15 +629,13 @@ function FundActionsCard({ fund }: { fund: FundMetadata }) {
   const pendingAmt = deployHook.pendingAmount ?? 0n;
   const hasPending = pendingAmt > 0n;
   const deployBusy =
-    deployHook.step !== "idle" && deployHook.step !== "error" && deployHook.step !== "confirmed";
-
+    deployHook.step !== "idle" &&
+    deployHook.step !== "error" &&
+    deployHook.step !== "confirmed";
   const maxWithdraw = metrics.totalDeployed;
 
   return (
-    <SectionCard
-      title="Actions"
-      subtitle="Update allocation · Deploy capital · Withdraw · Process redemptions"
-    >
+    <>
       {showAllocationModal && (
         <UpdateAllocationModal
           fundId={fund.fundId}
@@ -408,43 +643,42 @@ function FundActionsCard({ fund }: { fund: FundMetadata }) {
           onClose={() => setShowAllocationModal(false)}
         />
       )}
+      <SfCard style={{ padding: 28 }}>
+        <Eyebrow>§ Actions</Eyebrow>
+        <h3 className="display" style={{ fontSize: 24, marginTop: 6, marginBottom: 20 }}>
+          Manage capital
+        </h3>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Update Allocation */}
-        <ActionBlock
-          title="Update Allocation"
-          subtitle="Adjusts future deploys. Blocked while a deploy is pending."
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs"
-            style={{ borderColor: "var(--sf-violet-border)", color: "var(--sf-violet-text)" }}
-            onClick={() => setShowAllocationModal(true)}
-          >
+        <div style={{ paddingBottom: 20, borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Update Allocation</div>
+          <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
+            Adjusts future deploys. Blocked while a deploy is pending.
+          </p>
+          <SfButton variant="secondary" size="sm" onClick={() => setShowAllocationModal(true)}>
             Open Allocation Editor
-          </Button>
-        </ActionBlock>
+          </SfButton>
+        </div>
 
         {/* Deploy Capital */}
-        <ActionBlock
-          title="Deploy Capital"
-          subtitle="Bulk unwrap + fan-out to Aave USDC + Fixed pool per allocation."
-        >
+        <div style={{ paddingBottom: 20, borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Deploy Capital</div>
+          <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
+            Bulk unwrap + fan-out to Aave USDC + Fixed pool per allocation.
+          </p>
           {!hasPending ? (
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
-                style={{ borderColor: "var(--sf-card-border)" }}
+            <div style={{ display: "flex", gap: 8 }}>
+              <SfInput
                 placeholder="USDC amount"
+                mono
                 value={deployAmt}
                 onChange={(e) => setDeployAmt(e.target.value)}
                 disabled={deployBusy}
+                style={{ flex: 1 }}
               />
-              <Button
+              <SfButton
+                variant="primary"
                 size="sm"
-                variant="outline"
-                className="text-xs"
                 disabled={!deployAmt || !fund.allocationSet || deployBusy}
                 onClick={async () => {
                   const ok = await deployHook.deploy(fund.fundId, deployAmt);
@@ -452,219 +686,147 @@ function FundActionsCard({ fund }: { fund: FundMetadata }) {
                 }}
               >
                 {deployHook.step === "initiating"
-                  ? "Initiating..."
+                  ? "Initiating…"
                   : deployHook.step === "cooldown"
-                  ? "TEE Cooldown..."
+                  ? "TEE Cooldown…"
                   : deployHook.step === "decrypting"
-                  ? "Decrypting..."
+                  ? "Decrypting…"
                   : deployHook.step === "finalizing"
-                  ? "Finalizing..."
-                  : "Deploy"}
-              </Button>
+                  ? "Finalizing…"
+                  : "Deploy →"}
+              </SfButton>
             </div>
           ) : (
-            <div className="flex items-center justify-between gap-2 rounded-xl bg-amber-500/10 px-3 py-2">
-              <div className="flex flex-col">
-                <span className="text-xs text-amber-400">
-                  Pending deploy: {formatUnits(pendingAmt, 6)} USDC
-                </span>
-                <span className="text-[10px] text-text-muted">
-                  TEE cooldown — retry finalize to fan out
-                </span>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: 14,
+                background: "oklch(0.78 0.14 155 / 0.08)",
+                border: "1px solid var(--green)",
+                borderRadius: 2,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 12, color: "var(--green)" }}>
+                  Pending: {formatUnits(pendingAmt, 6)} USDC
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                  TEE cooldown — retry finalize
+                </div>
               </div>
-              <Button
+              <SfButton
+                variant="primary"
                 size="sm"
-                className="text-xs"
-                style={{ background: "var(--sf-violet)", color: "#fff" }}
                 disabled={deployBusy}
                 onClick={() => deployHook.retryFinalize(fund.fundId)}
               >
-                {deployHook.step === "decrypting"
-                  ? "Decrypting..."
-                  : deployHook.step === "finalizing"
-                  ? "Finalizing..."
-                  : "Finalize Deploy"}
-              </Button>
+                {deployHook.step === "decrypting" ? "Decrypting…" : deployHook.step === "finalizing" ? "Finalizing…" : "Finalize"}
+              </SfButton>
             </div>
           )}
-          {deployHook.error && <p className="text-xs text-red-400">{deployHook.error}</p>}
-        </ActionBlock>
+          {deployHook.error && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>{deployHook.error}</div>
+          )}
+        </div>
 
-        {/* Withdraw Capital */}
-        <ActionBlock
-          title="Withdraw Capital"
-          subtitle={`Pulls USDC back from sub-vaults, rewraps as cUSDC. Max: ${formatUnits(maxWithdraw, 6)} USDC`}
-        >
-          <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
-              style={{ borderColor: "var(--sf-card-border)" }}
+        {/* Withdraw */}
+        <div style={{ paddingBottom: 20, borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Withdraw Capital</div>
+          <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
+            Pulls USDC from sub-vaults. Max: {formatUnits(maxWithdraw, 6)} USDC
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <SfInput
               placeholder="USDC amount"
+              mono
               value={withdrawAmt}
               onChange={(e) => setWithdrawAmt(e.target.value)}
               disabled={withdrawHook.step === "writing"}
+              style={{ flex: 1 }}
             />
             {maxWithdraw > 0n && (
-              <Button
+              <SfButton
+                variant="ghost"
                 size="sm"
-                variant="outline"
-                className="px-2 text-[10px]"
                 disabled={withdrawHook.step === "writing"}
                 onClick={() => setWithdrawAmt(formatUnits(maxWithdraw, 6))}
               >
                 Max
-              </Button>
+              </SfButton>
             )}
-            <Button
+            <SfButton
+              variant="secondary"
               size="sm"
-              variant="outline"
-              className="text-xs"
               disabled={!withdrawAmt || withdrawHook.step === "writing"}
               onClick={async () => {
                 const ok = await withdrawHook.withdraw(fund.fundId, withdrawAmt);
                 if (ok) setWithdrawAmt("");
               }}
             >
-              {withdrawHook.step === "writing" ? "Withdrawing..." : "Withdraw"}
-            </Button>
+              {withdrawHook.step === "writing" ? "Withdrawing…" : "Withdraw"}
+            </SfButton>
           </div>
-          {withdrawHook.error && <p className="text-xs text-red-400">{withdrawHook.error}</p>}
-        </ActionBlock>
+          {withdrawHook.error && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>{withdrawHook.error}</div>
+          )}
+        </div>
 
-        {/* Process Pending Redeem */}
-        <ActionBlock
-          title="Process Pending Redeem"
-          subtitle="Only needed when capital is deployed. Withdraw Capital first."
-        >
-          <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm text-text-heading outline-none focus:ring-1 focus:ring-violet-400"
-              style={{ borderColor: "var(--sf-card-border)" }}
+        {/* Process Redeem */}
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Process Pending Redeem</div>
+          <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
+            Only needed when capital is deployed. Withdraw first.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <SfInput
               placeholder="User address (0x...)"
+              mono
               value={processAddr}
               onChange={(e) => setProcessAddr(e.target.value)}
               disabled={processRedeem.step === "writing"}
+              style={{ flex: 1 }}
             />
-            <Button
-              variant="outline"
+            <SfButton
+              variant="secondary"
               size="sm"
-              className="text-xs"
               disabled={!processAddr || processRedeem.step === "writing"}
-              onClick={() =>
-                processRedeem.processRedeem(fund.fundId, processAddr as `0x${string}`)
-              }
+              onClick={() => processRedeem.processRedeem(fund.fundId, processAddr as `0x${string}`)}
             >
-              {processRedeem.step === "writing" ? "Processing..." : "Process Redeem"}
-            </Button>
+              {processRedeem.step === "writing" ? "Processing…" : "Process"}
+            </SfButton>
           </div>
-          {processRedeem.error && <p className="text-xs text-red-400">{processRedeem.error}</p>}
-        </ActionBlock>
-      </div>
-    </SectionCard>
+          {processRedeem.error && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>{processRedeem.error}</div>
+          )}
+        </div>
+      </SfCard>
+    </>
   );
 }
 
-function AllocationBars({
-  allocation,
-  apys,
+function FundInfoCard({
+  fund,
+  metrics,
 }: {
-  allocation: [number, number];
-  apys: [number, number];
+  fund: FundMetadata;
+  metrics: ReturnType<typeof useSubVaultMetrics>["metrics"];
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      {SLOT_LABELS.map((label, i) => {
-        const pct = allocation[i] / 100;
-        const apyPct = (apys[i] / 100).toFixed(2);
-        return (
-          <div key={label} className="flex items-center gap-3">
-            <span className="w-20 text-xs font-medium" style={{ color: SLOT_COLORS[i] }}>
-              {label}
-            </span>
-            <div className="flex-1 rounded-full bg-surface" style={{ height: 8 }}>
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${pct}%`, background: SLOT_COLORS[i], opacity: 0.85 }}
-              />
-            </div>
-            <span className="w-12 text-right text-xs font-bold text-text-body">
-              {pct.toFixed(0)}%
-            </span>
-            <span className="w-16 text-right text-[10px] text-text-muted">{apyPct}% APY</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function SectionCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card
-      className="rounded-2xl border"
-      style={{ background: "var(--sf-card-bg)", borderColor: "var(--sf-card-border)" }}
-    >
-      <CardHeader className="px-5 pt-5 pb-0">
-        <h3 className="text-base font-semibold text-text-heading">{title}</h3>
-        {subtitle && <p className="mt-0.5 text-xs text-text-muted">{subtitle}</p>}
-      </CardHeader>
-      <CardContent className="px-5 py-4">{children}</CardContent>
-    </Card>
-  );
-}
-
-function ActionBlock({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="flex flex-col gap-2 rounded-xl border px-4 py-3"
-      style={{ borderColor: "var(--sf-card-border)" }}
-    >
-      <p className="text-xs font-semibold text-text-heading">{title}</p>
-      <p className="text-[11px] text-text-muted">{subtitle}</p>
-      {children}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      className="flex items-center justify-between gap-2 rounded-xl px-3 py-2"
-      style={{ background: "var(--surface)", border: "1px solid var(--surface-border)" }}
-    >
-      <span className="text-[10px] uppercase tracking-wide text-text-muted">{label}</span>
-      <span className="text-sm font-semibold text-text-heading">{value}</span>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-xs font-medium text-text-muted">{label}</label>
-      {children}
-    </div>
+    <SfCard style={{ padding: 28 }}>
+      <div className="eyebrow" style={{ marginBottom: 14 }}>§ Info</div>
+      <KV label="Fund ID" value={<span className="mono">#{fund.fundId.toString()}</span>} />
+      <KV label="Depositors" value={fund.depositorCount.toString()} />
+      <KV
+        label="Perf fee"
+        value={<span className="mono">{(Number(fund.performanceFeeBps) / 100).toFixed(2)}%</span>}
+      />
+      <KV
+        label="Deployed"
+        value={<span className="mono">${Number(formatUnits(metrics.totalDeployed, 6)).toFixed(6)}</span>}
+        last
+      />
+    </SfCard>
   );
 }

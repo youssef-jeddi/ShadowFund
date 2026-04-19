@@ -1,6 +1,5 @@
-import { Topbar } from "@/components/layout/topbar";
-import { Header } from "@/components/layout/header";
-import { Footer } from "@/components/layout/footer";
+import { SfNav } from "@/components/layout/sf-nav";
+import { SfFooter } from "@/components/layout/sf-footer";
 
 export default function LandingLayout({
   children,
@@ -8,11 +7,10 @@ export default function LandingLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col">
-      <Topbar />
-      <Header />
-      <main className="mx-auto w-full max-w-7xl flex-1">{children}</main>
-      <Footer />
+    <div style={{ display: "flex", minHeight: "100vh", flexDirection: "column" }}>
+      <SfNav />
+      <main style={{ flex: 1 }}>{children}</main>
+      <SfFooter />
     </div>
   );
 }

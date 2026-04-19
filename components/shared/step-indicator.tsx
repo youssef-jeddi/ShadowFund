@@ -4,38 +4,40 @@ interface StepIndicatorProps {
   label: string;
 }
 
-export function StepIndicator({ state, icon, label }: StepIndicatorProps) {
+export function StepIndicator({ state, label }: StepIndicatorProps) {
   const barColor =
-    state === "done"
-      ? "bg-tx-success-text"
-      : state === "active"
-        ? "bg-primary"
-        : "bg-surface-border";
-  const barWidth = state === "done" ? "w-full" : state === "active" ? "w-1/2" : "w-0";
-  const iconColor =
-    state === "done"
-      ? "text-tx-success-text"
-      : state === "active"
-        ? "text-primary"
-        : "text-text-muted";
-  const displayIcon = state === "done" ? "check_circle" : icon;
+    state === "done" ? "var(--green)" : state === "active" ? "var(--pearl)" : "var(--border)";
+  const barWidth =
+    state === "done" ? "100%" : state === "active" ? "50%" : "0%";
+  const textColor =
+    state === "done" ? "var(--green)" : state === "active" ? "var(--pearl)" : "var(--text-muted)";
+  const symbol = state === "done" ? "✓" : state === "active" ? "◌" : "○";
 
   return (
-    <div className="w-[136px] md:w-auto md:flex-1">
-      <div className="h-1 w-full rounded-full bg-surface-border">
+    <div style={{ flex: 1, minWidth: 60 }}>
+      <div style={{ height: 2, width: "100%", background: "var(--border)", position: "relative" }}>
         <div
-          className={`h-1 rounded-full transition-all duration-500 ${barColor} ${barWidth}`}
+          style={{
+            position: "absolute", top: 0, left: 0,
+            height: 2, width: barWidth,
+            background: barColor,
+            transition: "width 500ms ease",
+          }}
         />
       </div>
-      <div className="mt-2 flex items-center justify-center gap-1">
+      <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
         <span
-          aria-hidden="true"
-          className={`material-icons text-[16px]! ${iconColor} ${state === "active" ? "animate-spin motion-reduce:animate-none" : ""}`}
+          style={{
+            fontSize: 11,
+            color: textColor,
+            animation: state === "active" ? "blink 1.2s infinite" : "none",
+          }}
         >
-          {displayIcon}
+          {symbol}
         </span>
         <span
-          className={`font-mulish text-[10px] font-bold tracking-[1px] ${iconColor}`}
+          className="eyebrow"
+          style={{ color: textColor, fontSize: 9 }}
         >
           {label}
         </span>
@@ -62,7 +64,6 @@ export function ProgressTracker({ currentStep, steps }: ProgressTrackerProps) {
     const targetIdx = steps.findIndex((s) => s.key === target.key);
     if (currentIdx > targetIdx) return "done";
     if (currentIdx === targetIdx) {
-      // Last step (confirmed) goes straight to "done"
       return targetIdx === steps.length - 1 ? "done" : "active";
     }
     return "pending";
@@ -70,7 +71,7 @@ export function ProgressTracker({ currentStep, steps }: ProgressTrackerProps) {
 
   return (
     <div
-      className="flex w-full flex-col items-center gap-3 md:flex-row md:items-start md:gap-3"
+      style={{ display: "flex", alignItems: "start", gap: 4 }}
       role="status"
       aria-live="polite"
     >

@@ -23,6 +23,7 @@ import { CodeSection } from "@/components/shared/code-section";
 import { InfoCard } from "@/components/shared/info-card";
 import { ErrorMessage } from "@/components/shared/error-message";
 import { EncryptedBalance } from "@/components/shared/encrypted-balance";
+import { SfButton } from "@/components/shadow-fund/primitives/sf-button";
 
 const WRAP_CODE = `function wrap(address to, uint256 amount) public virtual override returns (euint256) {
     // take ownership of the underlying tokens
@@ -71,14 +72,12 @@ export function WrapModal() {
   const cSelectedSymbol = `c${selectedSymbol}`;
   const [amount, setAmount] = useState("");
   const isWrap = activeTab === "wrap";
-  // Gas limits: wrap (approve + wrap) ~150k, unwrap (encrypt + unwrap + finalize) ~300k
   const { fee: estimatedFee } = useEstimatedFee(isWrap ? 150_000n : 300_000n);
   const isWrapProcessing = wrapStep === "approving" || wrapStep === "wrapping";
   const isUnwrapProcessing = unwrapStep === "encrypting" || unwrapStep === "unwrapping" || unwrapStep === "finalizing";
   const isProcessing = isWrap ? isWrapProcessing : isUnwrapProcessing;
   const currentError = isWrap ? wrapError : unwrapError;
 
-  // Map wrappable tokens with balances
   const wrappableTokens = useMemo(() => wrappableTokenConfigs.map((t) => {
     const bal = balances.find((b) => b.symbol === t.symbol);
     return {
@@ -92,7 +91,6 @@ export function WrapModal() {
 
   const selectedToken = wrappableTokens.find((t) => t.symbol === selectedSymbol) ?? wrappableTokens[0];
 
-  // Reset amount and state when modal opens or tab changes
   useEffect(() => {
     if (open) {
       setAmount("");
@@ -102,15 +100,9 @@ export function WrapModal() {
     }
   }, [open, activeTab, resetWrap, resetUnwrap, setDropdownOpen]);
 
-  const handleAmountChange = useCallback(
-    (value: string) => {
-      // Allow empty, or valid decimal numbers
-      if (value === "" || /^\d*\.?\d*$/.test(value)) {
-        setAmount(value);
-      }
-    },
-    []
-  );
+  const handleAmountChange = useCallback((value: string) => {
+    if (value === "" || /^\d*\.?\d*$/.test(value)) setAmount(value);
+  }, []);
 
   const handleMax = useCallback(() => {
     if (isWrap) {
@@ -127,10 +119,7 @@ export function WrapModal() {
     setDropdownOpen(false);
   }, [setDropdownOpen]);
 
-  // Find the original token config for the wrap hook
-  const selectedTokenConfig = wrappableTokenConfigs.find(
-    (t) => t.symbol === selectedSymbol
-  );
+  const selectedTokenConfig = wrappableTokenConfigs.find((t) => t.symbol === selectedSymbol);
 
   const handleWrap = useCallback(async () => {
     if (!selectedTokenConfig || !amount) return;
@@ -144,16 +133,11 @@ export function WrapModal() {
     if (success) setAmount("");
   }, [selectedTokenConfig, amount, unwrap]);
 
-  // Validation
   const parsedAmount = parseFloat(amount) || 0;
   const hasDecryptedBalance = !isWrap && decryptedAmounts[cSelectedSymbol] !== undefined;
-  const maxAmountStr = isWrap
-    ? (selectedToken?.formatted ?? "0")
-    : (decryptedAmounts[cSelectedSymbol] ?? "0");
+  const maxAmountStr = isWrap ? (selectedToken?.formatted ?? "0") : (decryptedAmounts[cSelectedSymbol] ?? "0");
   const maxAmount = parseFloat(maxAmountStr) || 0;
-  // Only check over-balance if we know the balance (wrap always, unwrap only if decrypted)
   const isOverBalance = (isWrap || hasDecryptedBalance) && parsedAmount > maxAmount;
-  // For unwrap: require decrypted balance before allowing submission
   const needsDecrypt = !isWrap && !hasDecryptedBalance && parsedAmount > 0;
   const isValidAmount = parsedAmount > 0 && !isOverBalance && !needsDecrypt;
 
@@ -162,127 +146,148 @@ export function WrapModal() {
   return (
     <Dialog open={open} onOpenChange={(value) => { if (!value && isProcessing) return; setOpen(value); }}>
       <DialogContent
-        className="max-h-[90vh] max-w-[calc(100%-2rem)] gap-2.5 overflow-y-auto overflow-x-hidden rounded-[40px] border-modal-border bg-modal-bg px-6 py-[26px] shadow-[0px_2px_4px_0px_rgba(116,142,255,0.22)] duration-300 no-scrollbar data-[state=open]:slide-in-from-bottom-8 data-[state=closed]:slide-out-to-bottom-8 motion-reduce:data-[state=open]:slide-in-from-bottom-0 motion-reduce:data-[state=closed]:slide-out-to-bottom-0 md:px-10 sm:max-w-[620px]"
         showCloseButton={false}
+        className="block border-0 bg-transparent p-0 shadow-none rounded-none sm:max-w-[600px] overflow-hidden"
         onEscapeKeyDown={(e) => { if (isProcessing) e.preventDefault(); }}
         onInteractOutside={(e) => { if (isProcessing) e.preventDefault(); }}
       >
-        {/* Content */}
-        <div className="flex min-w-0 w-full flex-col items-center gap-[26px]">
-          {/* Header + Close */}
-          <div className="relative w-full text-center">
-            <DialogTitle className="font-mulish text-[26px] font-bold leading-10 text-text-heading md:text-[34px]">
-              Convert Assets
-            </DialogTitle>
-            <DialogDescription className="mt-2 font-mulish text-sm leading-6 text-text-body md:text-base">
-              {isWrap ? "Make your assets confidential" : "Return your assets to public"}
-            </DialogDescription>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              disabled={isProcessing}
-              className="absolute top-0 right-0 cursor-pointer font-mulish text-xl text-text-heading transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-              aria-label="Close"
-            >
-              X
-            </button>
-          </div>
+        <div
+          style={{
+            background: "var(--bg-2)",
+            border: "1px solid var(--border)",
+            position: "relative",
+            maxHeight: "92vh",
+            overflowY: "auto",
+          }}
+        >
+          {/* Pearl corner accents */}
+          <span style={{ position: "absolute", top: 0, left: 0, width: 3, height: 36, background: "var(--pearl)" }} />
+          <span style={{ position: "absolute", top: 0, left: 0, width: 36, height: 3, background: "var(--pearl)" }} />
+          <span style={{ position: "absolute", top: 0, right: 0, width: 3, height: 36, background: "var(--pearl)" }} />
+          <span style={{ position: "absolute", top: 0, right: 0, width: 36, height: 3, background: "var(--pearl)" }} />
 
-          {/* Glass card */}
-          <div className="flex w-full flex-col gap-[26px] rounded-[32px] border border-surface-border bg-surface p-5 backdrop-blur-sm md:px-10 md:py-5">
-            {/* Tabs */}
-            <div className="flex items-start justify-between">
+          <div style={{ padding: "40px 32px 32px" }}>
+            {/* Header */}
+            <div style={{ textAlign: "center", position: "relative", marginBottom: 28 }}>
               <button
                 type="button"
-                onClick={() => setActiveTab("wrap")}
+                onClick={() => setOpen(false)}
                 disabled={isProcessing}
-                className={`flex w-[48%] cursor-pointer items-center justify-center rounded-2xl py-3.5 font-mulish text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                  isWrap
-                    ? "border border-surface-border bg-surface text-text-heading"
-                    : "text-text-muted hover:text-text-body"
-                }`}
+                style={{
+                  position: "absolute", top: 0, right: 0,
+                  background: "none", border: "none",
+                  color: "var(--text-muted)",
+                  cursor: isProcessing ? "not-allowed" : "pointer",
+                  fontSize: 22, lineHeight: 1, padding: 2,
+                  opacity: isProcessing ? 0.3 : 0.7,
+                }}
+                aria-label="Close"
               >
-                Wrap
+                ×
               </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("unwrap")}
-                disabled={isProcessing}
-                className={`flex w-[48%] cursor-pointer items-center justify-center rounded-2xl py-3.5 font-mulish text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                  !isWrap
-                    ? "border border-surface-border bg-surface text-text-heading"
-                    : "text-text-muted hover:text-text-body"
-                }`}
-              >
-                Unwrap
-              </button>
+              <DialogTitle asChild>
+                <h2 className="display" style={{ fontSize: 40, letterSpacing: "-0.025em" }}>
+                  {isWrap ? "Wrap" : "Unwrap"}
+                  <span className="display-italic" style={{ color: "var(--pearl)" }}>.</span>
+                </h2>
+              </DialogTitle>
+              <DialogDescription asChild>
+                <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 6 }}>
+                  {isWrap ? "Make your assets confidential" : "Return your assets to public"}
+                </p>
+              </DialogDescription>
             </div>
 
-            {/* Amount label + balance */}
-            <div className="flex flex-col gap-2 text-xs md:flex-row md:items-center md:justify-between md:gap-0">
-              <span className="font-mulish font-bold tracking-[1.2px] text-text-muted">
-                {isWrap ? "Amount to Wrap" : "Amount to Unwrap"}
-              </span>
-              <div className="flex items-center gap-1.5 font-mulish">
-                <span className="text-text-body">
-                  {isWrap ? "Public Asset :" : "Confidential Asset :"}
-                </span>
+            {/* Tabs */}
+            <div style={{ display: "flex", gap: 1, background: "var(--border)", marginBottom: 28 }}>
+              {(["wrap", "unwrap"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  disabled={isProcessing}
+                  style={{
+                    flex: 1, padding: "11px 0",
+                    fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",
+                    background: activeTab === tab ? "var(--surface)" : "var(--bg-2)",
+                    color: activeTab === tab ? "var(--text)" : "var(--text-muted)",
+                    border: "none",
+                    borderBottom: activeTab === tab ? "1px solid var(--pearl)" : "1px solid transparent",
+                    cursor: isProcessing ? "not-allowed" : "pointer",
+                    transition: "all 150ms",
+                  }}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Balance label */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span className="eyebrow">{isWrap ? "Amount to Wrap" : "Amount to Unwrap"}</span>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", display: "flex", gap: 6, alignItems: "center" }}>
+                <span>{isWrap ? "Balance:" : "Confidential:"}</span>
                 {isWrap ? (
-                  <span className="text-text-heading">
+                  <span className="mono" style={{ color: "var(--text)", fontSize: 12 }}>
                     {selectedToken ? `${selectedToken.formatted} ${selectedToken.symbol}` : "0"}
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-text-heading">
-                    <EncryptedBalance
-                      symbol={cSelectedSymbol}
-                      display={getConfidentialDisplay(cSelectedSymbol)}
-                      decryptingSymbol={decryptingSymbol}
-                      onDecrypt={handleDecryptBalance}
-                    />
-                  </span>
+                  <EncryptedBalance
+                    symbol={cSelectedSymbol}
+                    display={getConfidentialDisplay(cSelectedSymbol)}
+                    decryptingSymbol={decryptingSymbol}
+                    onDecrypt={handleDecryptBalance}
+                  />
                 )}
               </div>
             </div>
 
             {/* Input area */}
-            <div className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface px-5 py-[17px]">
-              <div className="flex items-center justify-between">
+            <div
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                padding: "16px 20px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
                 {/* Token selector */}
-                <div className="relative">
+                <div style={{ position: "relative", flexShrink: 0 }}>
                   <button
                     ref={triggerRef}
                     type="button"
                     onClick={() => setDropdownOpen(!dropdownOpen)}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-full border border-token-selector-border bg-token-selector-bg px-3 py-1.5 transition-opacity hover:opacity-80"
                     aria-label="Select token"
                     aria-expanded={dropdownOpen}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "8px 12px",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-2)",
+                      cursor: "pointer",
+                      borderRadius: 2,
+                    }}
                   >
                     {selectedToken && (
-                      <Image
-                        src={selectedToken.icon}
-                        alt=""
-                        width={20}
-                        height={20}
-                        className="size-5"
-                      />
+                      <Image src={selectedToken.icon} alt="" width={18} height={18} />
                     )}
-                    <span className="font-mulish text-sm font-bold text-text-heading">
+                    <span className="mono" style={{ fontSize: 13 }}>
                       {isWrap ? selectedToken?.symbol : cTokenSymbol}
                     </span>
-                    <span aria-hidden="true" className="material-icons text-[14px]! text-text-body">
-                      expand_more
-                    </span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>▾</span>
                   </button>
 
-                  {/* Dropdown */}
                   {dropdownOpen && (
                     <div
                       ref={dropdownRef}
                       role="listbox"
-                      aria-label="Select token"
-                      className={`absolute left-0 top-full z-50 mt-1 origin-top-left animate-[dropdown-in_150ms_ease-out] motion-reduce:animate-none rounded-xl border border-surface-border bg-modal-bg p-2 shadow-lg ${
-                        isWrap ? "min-w-[160px]" : "min-w-[220px]"
-                      }`}
+                      style={{
+                        position: "absolute", top: "100%", left: 0, zIndex: 50,
+                        marginTop: 4, padding: 4,
+                        background: "var(--bg-2)",
+                        border: "1px solid var(--border)",
+                        minWidth: isWrap ? 140 : 200,
+                      }}
                     >
                       {wrappableTokens.map((token) => {
                         const cSymbol = `c${token.symbol}`;
@@ -292,26 +297,24 @@ export function WrapModal() {
                             key={token.symbol}
                             type="button"
                             onClick={() => handleSelectToken(token.symbol)}
-                            className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-surface ${
-                              token.symbol === selectedSymbol ? "bg-surface" : ""
-                            }`}
+                            style={{
+                              display: "flex", width: "100%", alignItems: "center", gap: 10,
+                              padding: "8px 10px",
+                              background: token.symbol === selectedSymbol ? "var(--surface)" : "transparent",
+                              border: "none", cursor: "pointer",
+                              borderRadius: 2,
+                            }}
                           >
-                            <Image
-                              src={token.icon}
-                              alt=""
-                              width={20}
-                              height={20}
-                              className="size-5"
-                            />
-                            <span className="font-mulish text-sm font-bold text-text-heading">
+                            <Image src={token.icon} alt="" width={18} height={18} />
+                            <span className="mono" style={{ fontSize: 13, color: "var(--text)" }}>
                               {isWrap ? token.symbol : cSymbol}
                             </span>
                             {isWrap ? (
-                              <span className="ml-auto font-mulish text-xs text-text-body">
+                              <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)" }}>
                                 {token.formatted}
                               </span>
                             ) : (
-                              <span className="ml-auto flex items-center gap-1.5 font-mulish text-xs text-text-body">
+                              <span style={{ marginLeft: "auto" }}>
                                 <EncryptedBalance
                                   symbol={cSymbol}
                                   display={confidentialDisplay}
@@ -336,32 +339,37 @@ export function WrapModal() {
                   placeholder="0.00"
                   value={amount}
                   onChange={(e) => handleAmountChange(e.target.value)}
-                  className={`ml-6 min-w-0 flex-1 bg-transparent text-right font-mulish text-2xl font-bold leading-9 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:rounded placeholder:text-text-muted md:text-[30px] ${
-                    isOverBalance ? "text-tx-error-text" : "text-text-heading"
-                  }`}
+                  style={{
+                    flex: 1, minWidth: 0,
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    textAlign: "right",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 28,
+                    color: isOverBalance ? "var(--red)" : "var(--text)",
+                  }}
                   aria-label="Amount"
                   aria-invalid={isOverBalance || needsDecrypt}
-                  aria-describedby={isOverBalance ? "wrap-balance-error" : needsDecrypt ? "wrap-decrypt-hint" : undefined}
                 />
               </div>
+
               {isOverBalance && (
-                <p id="wrap-balance-error" className="pl-1 font-mulish text-xs text-tx-error-text">
-                  Insufficient balance
-                </p>
+                <p style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>Insufficient balance</p>
               )}
               {needsDecrypt && (
-                <p id="wrap-decrypt-hint" className="pl-1 font-mulish text-xs text-decrypt-warning">
-                  Decrypt your balance first to continue
-                </p>
+                <p style={{ marginTop: 8, fontSize: 11, color: "var(--pearl-dim)" }}>Decrypt your balance first to continue</p>
               )}
 
-              {/* Network + MAX */}
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-mulish text-text-muted">Arbitrum Sepolia</span>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                <span className="mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>Arbitrum Sepolia</span>
                 <button
                   type="button"
                   onClick={handleMax}
-                  className="cursor-pointer font-mulish font-bold text-primary transition-opacity hover:opacity-80"
+                  style={{
+                    fontSize: 11, color: "var(--pearl)", background: "none", border: "none",
+                    cursor: "pointer", letterSpacing: "0.06em", textTransform: "uppercase",
+                  }}
                 >
                   MAX
                 </button>
@@ -369,110 +377,123 @@ export function WrapModal() {
             </div>
 
             {/* Transaction details */}
-            <div className="flex flex-col gap-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-mulish text-text-muted">You will receive</span>
-                <span className="font-mulish font-medium text-text-heading">
+            <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>You will receive</span>
+                <span className="mono" style={{ fontSize: 13 }}>
                   {isWrap ? `1:1 ${cTokenSymbol}` : `1:1 ${selectedToken?.symbol}`}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="font-mulish text-text-muted">Estimated Gas Fee</span>
-                <span className="font-mulish text-text-body">{estimatedFee ?? "..."} ETH</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Estimated Gas Fee</span>
+                <span className="mono" style={{ fontSize: 13, color: "var(--text-dim)" }}>~{estimatedFee ?? "…"} ETH</span>
               </div>
             </div>
 
-            {/* Error message */}
+            {/* Error */}
             {currentError && !isFinalizeError && (
-              <ErrorMessage error={currentError} onRetry={isWrap ? resetWrap : resetUnwrap} />
+              <div style={{ marginTop: 16 }}>
+                <ErrorMessage error={currentError} onRetry={isWrap ? resetWrap : resetUnwrap} />
+              </div>
             )}
             {currentError && isFinalizeError && (
-              <div className="flex flex-col gap-2 rounded-xl border border-tx-error-text/30 bg-tx-error-bg px-4 py-3">
-                <div className="flex items-start gap-2">
-                  <span aria-hidden="true" className="material-icons text-[18px]! text-tx-error-text">
-                    warning
-                  </span>
-                  <p className="min-w-0 flex-1 font-mulish text-xs text-tx-error-text">
-                    Your tokens have been unwrapped but the finalization failed. Your tokens are in transit — click below to retry and recover them.
+              <div
+                style={{
+                  marginTop: 16, padding: "14px 16px",
+                  border: "1px solid var(--red)",
+                  background: "oklch(0.68 0.18 25 / 0.08)",
+                  display: "flex", gap: 12, alignItems: "start",
+                }}
+              >
+                <span style={{ fontSize: 16, color: "var(--red)", flexShrink: 0 }}>⚠</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 12, color: "var(--red)", lineHeight: 1.6 }}>
+                    Tokens unwrapped but finalization failed. Your tokens are in transit — click below to recover them.
                   </p>
+                  <button
+                    type="button"
+                    onClick={retryFinalize}
+                    style={{
+                      marginTop: 10, padding: "6px 14px",
+                      background: "var(--red)", color: "#fff",
+                      border: "none", cursor: "pointer",
+                      fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase",
+                    }}
+                  >
+                    Retry Finalize
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={retryFinalize}
-                  className="cursor-pointer self-end rounded-lg bg-tx-error-text px-4 py-1.5 font-mulish text-xs font-bold text-primary-foreground transition-opacity hover:opacity-80"
-                >
-                  Retry Finalize
-                </button>
               </div>
             )}
 
             {/* CTA */}
-            <button
-              type="button"
-              disabled={!isValidAmount || isProcessing}
-              onClick={isWrap ? handleWrap : handleUnwrap}
-              className="mx-auto flex w-[150px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 shadow-[0px_2px_4px_0px_rgba(71,37,244,0.2)] transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40 md:w-[215px] md:px-5 md:py-3"
-            >
-              {isProcessing ? (
-                <>
-                  <span aria-hidden="true" className="material-icons animate-spin motion-reduce:animate-none text-[16px]! text-primary-foreground md:text-[20px]!">
-                    sync
-                  </span>
-                  <span className="font-mulish text-sm font-bold text-primary-foreground md:text-lg">
-                    {isWrap
-                      ? (wrapStep === "approving" ? "Approving..." : "Wrapping...")
-                      : (unwrapStep === "encrypting" ? "Encrypting..." : unwrapStep === "unwrapping" ? "Unwrapping..." : "Finalizing...")}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span aria-hidden="true" className="material-icons text-[16px]! text-primary-foreground md:text-[20px]!">
-                    account_balance_wallet
-                  </span>
-                  <span className="font-mulish text-sm font-bold text-primary-foreground md:text-lg">
-                    {isWrap ? "Wrap Assets" : "Unwrap Assets"}
-                  </span>
-                </>
-              )}
-            </button>
+            <div style={{ marginTop: 24 }}>
+              <SfButton
+                variant="primary"
+                disabled={!isValidAmount || isProcessing}
+                onClick={isWrap ? handleWrap : handleUnwrap}
+                style={{ width: "100%" }}
+              >
+                {isProcessing
+                  ? isWrap
+                    ? wrapStep === "approving" ? "Approving…" : "Wrapping…"
+                    : unwrapStep === "encrypting" ? "Encrypting…" : unwrapStep === "unwrapping" ? "Unwrapping…" : "Finalizing…"
+                  : isWrap ? "Wrap Assets" : "Unwrap Assets"}
+              </SfButton>
+            </div>
 
             {/* Progress tracker */}
-            <ProgressTracker
-              currentStep={isWrap ? wrapStep : unwrapStep}
-              steps={isWrap ? WRAP_STEPS : UNWRAP_STEPS}
-            />
+            <div style={{ marginTop: 20 }}>
+              <ProgressTracker
+                currentStep={isWrap ? wrapStep : unwrapStep}
+                steps={isWrap ? WRAP_STEPS : UNWRAP_STEPS}
+              />
+            </div>
 
-            {/* Success status on confirmed */}
+            {/* Success */}
             {isWrap && wrapStep === "confirmed" && wrapTxHash && (
-              <TxSuccessStatus message="Wrap Complete" txHash={wrapTxHash} />
+              <div style={{ marginTop: 12 }}>
+                <TxSuccessStatus message="Wrap Complete" txHash={wrapTxHash} />
+              </div>
             )}
             {!isWrap && unwrapStep === "confirmed" && finalizeTxHash && (
-              <TxSuccessStatus message="Unwrap Complete" txHash={finalizeTxHash} />
+              <div style={{ marginTop: 12 }}>
+                <TxSuccessStatus message="Unwrap Complete" txHash={finalizeTxHash} />
+              </div>
             )}
 
             {/* How it works */}
-            <InfoCard>
-              {isWrap
-                ? "Wrapping moves your tokens from the public Arbitrum ledger into Confidential Token's private vault. Once wrapped, your balance and transfers are only visible to you."
-                : "Unwrapping moves your confidential tokens back to the public Arbitrum ledger. Once unwrapped, your balance and transfers are visible on-chain."}
-            </InfoCard>
-          </div>
+            <div style={{ marginTop: 16 }}>
+              <InfoCard>
+                {isWrap
+                  ? "Wrapping moves your tokens from the public Arbitrum ledger into Confidential Token's private vault. Once wrapped, your balance and transfers are only visible to you."
+                  : "Unwrapping moves your confidential tokens back to the public Arbitrum ledger. Once unwrapped, your balance and transfers are visible on-chain."}
+              </InfoCard>
+            </div>
 
-          {/* Function called */}
-          {devMode && (
-            <CodeSection code={isWrap ? WRAP_CODE : UNWRAP_CODE} />
-          )}
+            {/* Cancel */}
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              disabled={isProcessing}
+              style={{
+                width: "100%", marginTop: 16,
+                background: "none", border: "none",
+                color: "var(--text-muted)",
+                cursor: isProcessing ? "not-allowed" : "pointer",
+                fontSize: 13, opacity: isProcessing ? 0.3 : 0.6,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
 
-        {/* Cancel */}
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          disabled={isProcessing}
-          className="mt-1 w-full cursor-pointer text-center font-inter text-[15px] font-medium text-text-muted transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          Cancel
-        </button>
+        {devMode && (
+          <div style={{ marginTop: 16, minWidth: 0, maxWidth: "100%", overflow: "hidden" }}>
+            <CodeSection code={isWrap ? WRAP_CODE : UNWRAP_CODE} />
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

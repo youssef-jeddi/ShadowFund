@@ -12,7 +12,7 @@ export default async function FundDetailPage({
 }) {
   const { id } = await params;
   return (
-    <div className="min-h-[60vh] px-4 py-8 md:px-8 md:py-10">
+    <div style={{ minHeight: "60vh" }}>
       <FundDetailContent fundId={BigInt(id)} />
     </div>
   );

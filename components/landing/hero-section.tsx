@@ -1,52 +1,237 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useAppKitAccount } from "@reown/appkit/react";
-import { useConnectWallet } from "@/hooks/use-connect-wallet";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { CONFIG } from "@/lib/config";
+import { Scramble } from "@/components/shadow-fund/primitives/scramble";
+import { Ticker } from "@/components/shadow-fund/primitives/ticker";
+import { SfButton } from "@/components/shadow-fund/primitives/sf-button";
+import { SfTag } from "@/components/shadow-fund/primitives/sf-tag";
+import { Eyebrow } from "@/components/shadow-fund/primitives/eyebrow";
+import { useFundList } from "@/hooks/use-fund-list";
+
+function FloatingConfidentialCard() {
+  return (
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 400,
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        padding: 24,
+        borderRadius: 3,
+        boxShadow: "0 40px 80px -20px rgba(0,0,0,0.5)",
+        animation: "fade-up 600ms ease-out",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 18,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 2,
+              background: "linear-gradient(135deg, var(--pearl), var(--pearl-deep))",
+            }}
+          />
+          <div>
+            <div style={{ fontSize: 13 }}>Crescent Yield</div>
+            <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)" }}>
+              cYLD · nightshade dao
+            </div>
+          </div>
+        </div>
+        <SfTag tone="encrypted">Private Balance</SfTag>
+      </div>
+      <div
+        style={{
+          padding: "20px 0",
+          borderTop: "1px solid var(--border)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div className="eyebrow" style={{ marginBottom: 10 }}>
+          Your Balance
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <Scramble
+            value="1284.44"
+            length={9}
+            resolved={false}
+            style={{ fontSize: 32 }}
+          />
+          <span className="mono" style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            cUSDC
+          </span>
+        </div>
+        <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
+          visible only to your wallet
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+        <div>
+          <div className="eyebrow">APY</div>
+          <div className="mono" style={{ color: "var(--green)", fontSize: 18, marginTop: 4 }}>
+            <Ticker value={9.81} format={(v) => v.toFixed(2) + "%"} interval={600} jitter={0.0006} />
+          </div>
+        </div>
+        <div>
+          <div className="eyebrow">Strategy</div>
+          <div className="mono" style={{ fontSize: 11, marginTop: 6, color: "var(--text-dim)" }}>
+            Aave v3 · Looped
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroMetric({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: "24px 20px 24px 0",
+        borderRight: "1px solid var(--border)",
+      }}
+    >
+      <div className="eyebrow">{label}</div>
+      <div
+        className="display"
+        style={{
+          fontSize: 26,
+          marginTop: 12,
+          fontWeight: 500,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {value}
+      </div>
+      <div
+        className="mono"
+        style={{
+          fontSize: 10,
+          color: "var(--text-muted)",
+          marginTop: 6,
+          textTransform: "uppercase",
+          letterSpacing: "0.1em",
+        }}
+      >
+        {sub}
+      </div>
+    </div>
+  );
+}
 
 export function HeroSection() {
-  const { connect } = useConnectWallet();
-  const { isConnected } = useAppKitAccount();
-  const router = useRouter();
+  const { funds, count, isLoading } = useFundList();
 
-  function handleTryItNow() {
-    if (isConnected) {
-      router.push("/dashboard");
-    } else {
-      connect();
-    }
-  }
+  const totalDepositors = funds.reduce(
+    (sum, f) => sum + Number(f.depositorCount),
+    0
+  );
 
   return (
-    <section className="flex w-full flex-col items-center gap-5 px-10 py-10 md:gap-10 md:px-20 md:py-[60px] lg:px-40 lg:py-16">
-      <h1 className="w-full text-center font-anybody text-4xl font-bold leading-none tracking-[-1px] text-text-heading md:text-7xl md:leading-[72px] md:tracking-[-3.6px]">
-        Private Finance.
-        <br />
-        In Action.
-      </h1>
-      <p className="w-full text-center font-mulish text-sm leading-7 text-text-body md:text-xl">
-        Use Confidential Token to transform any ERC-20
-        <br />
-        into confidential and auditable on-chain assets.
-      </p>
-      <div className="flex w-full items-stretch justify-center gap-5">
-        <Button
-          onClick={handleTryItNow}
-          className="h-auto rounded-xl bg-primary px-2.5 py-2 font-mulish text-sm font-bold text-primary-foreground shadow-[0px_2px_4px_0px_rgba(71,37,244,0.2)] hover:bg-primary-hover md:px-[18px] md:py-3 md:text-base"
-        >
-          <span aria-hidden="true" className="material-icons text-base! leading-7 md:text-xl!">account_balance_wallet</span>
-          Try It Now
-        </Button>
-        <Button
-          asChild
-          variant="ghost"
-          className="h-auto rounded-xl border border-ghost-btn-border bg-ghost-btn-bg px-6 font-mulish text-sm font-bold text-ghost-btn-text backdrop-blur-sm hover:bg-ghost-btn-bg hover:opacity-80 md:px-8 md:text-base"
-        >
-          <Link href={CONFIG.urls.contact} target="_blank" rel="noopener noreferrer">Talk To Us</Link>
-        </Button>
+    <section
+      style={{
+        position: "relative",
+        padding: "80px 32px 60px",
+        maxWidth: 1400,
+        margin: "0 auto",
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr 1fr",
+          gap: 48,
+          alignItems: "start",
+        }}
+      >
+        <div>
+          <Eyebrow dot>Private DeFi · Powered by iExec Nox</Eyebrow>
+          <h1
+            className="display"
+            style={{
+              fontSize: "clamp(56px, 9vw, 112px)",
+              lineHeight: 0.95,
+              marginTop: 32,
+              letterSpacing: "-0.035em",
+              fontWeight: 500,
+            }}
+          >
+            Yield without
+            <br />
+            <span className="display-italic" style={{ color: "var(--pearl)" }}>
+              disclosure
+            </span>
+            .
+          </h1>
+          <p
+            style={{
+              marginTop: 36,
+              maxWidth: 580,
+              fontSize: 17,
+              lineHeight: 1.55,
+              color: "var(--text-dim)",
+            }}
+          >
+            ShadowFund is a confidential vault protocol. Managers publish their
+            strategies openly. Depositors allocate with{" "}
+            <em style={{ color: "var(--text)", fontStyle: "normal" }}>cUSDC</em>{" "}
+            — and every individual balance stays encrypted on-chain. Transparent
+            where it matters. Private where it counts.
+          </p>
+          <div style={{ display: "flex", gap: 12, marginTop: 44 }}>
+            <Link href="/funds">
+              <SfButton variant="primary" size="lg">
+                Browse Vaults →
+              </SfButton>
+            </Link>
+            <Link href="/dashboard/manager">
+              <SfButton variant="secondary" size="lg">
+                Launch a Vault
+              </SfButton>
+            </Link>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              marginTop: 80,
+              borderTop: "1px solid var(--border)",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <HeroMetric
+              label="Vaults"
+              value={isLoading ? "—" : String(count)}
+              sub="active"
+            />
+            <HeroMetric
+              label="Depositors"
+              value={isLoading ? "—" : totalDepositors > 0 ? totalDepositors.toLocaleString() : "—"}
+              sub="balances sealed"
+            />
+          </div>
+        </div>
+        <div style={{ paddingTop: 40 }}>
+          <FloatingConfidentialCard />
+        </div>
       </div>
     </section>
   );

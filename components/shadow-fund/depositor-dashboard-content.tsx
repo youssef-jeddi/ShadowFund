@@ -2,18 +2,28 @@
 
 import { useState } from "react";
 import { useAccount } from "wagmi";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import Link from "next/link";
+import { Eyebrow } from "@/components/shadow-fund/primitives/eyebrow";
+import { SfButton } from "@/components/shadow-fund/primitives/sf-button";
+import { SfCard } from "@/components/shadow-fund/primitives/sf-card";
+import { SfInput } from "@/components/shadow-fund/primitives/sf-input";
+import { SfTag } from "@/components/shadow-fund/primitives/sf-tag";
+import { StatCell } from "@/components/shadow-fund/primitives/stat-cell";
+import { Scramble } from "@/components/shadow-fund/primitives/scramble";
+import { LockIcon } from "@/components/shadow-fund/primitives/lock-icon";
+import { Ticker } from "@/components/shadow-fund/primitives/ticker";
 import { useFundList } from "@/hooks/use-fund-list";
 import { useMyPosition } from "@/hooks/use-my-position";
 import { useRequestDeposit } from "@/hooks/use-request-deposit";
 import { useRequestRedeem } from "@/hooks/use-request-redeem";
 import { useClaimRedemption } from "@/hooks/use-claim-redemption";
-import { DepositorPositionCard } from "@/components/shadow-fund/depositor-position-card";
+import { useTokenBalances } from "@/hooks/use-token-balances";
+import { useConfidentialBalances } from "@/hooks/use-confidential-balances";
+import { useDecryptBalance } from "@/hooks/use-decrypt-balance";
+import { useSubVaultMetrics } from "@/hooks/use-subvault-metrics";
+import { useWrapModal } from "@/components/modals/wrap-modal-provider";
 import { truncateAddress } from "@/lib/utils";
 import type { FundMetadata } from "@/hooks/use-fund-list";
-import Link from "next/link";
 
 export function DepositorDashboardContent() {
   const { address } = useAccount();
@@ -21,276 +31,554 @@ export function DepositorDashboardContent() {
 
   if (!address) {
     return (
-      <div className="flex flex-col items-center gap-4 py-20 text-center">
-        <p className="text-text-body">Connect your wallet to view your positions.</p>
+      <div
+        style={{
+          maxWidth: 1400,
+          margin: "0 auto",
+          padding: "80px 32px",
+          textAlign: "center",
+          color: "var(--text-muted)",
+        }}
+      >
+        Connect your wallet to view your positions.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-bold text-text-heading md:text-3xl">
-          My Positions
-        </h1>
-        <p className="mt-1 text-text-body">
-          Your position sizes are encrypted on-chain — the fund manager and
-          other depositors cannot see how much you contributed.
-        </p>
-      </div>
-
-      {/* Privacy callout */}
-      <div
-        className="flex items-start gap-3 rounded-2xl px-4 py-3 text-sm"
-        style={{
-          background: "var(--sf-card-bg)",
-          border: "1px solid var(--sf-card-border)",
-        }}
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "56px 32px" }}>
+      {/* Header */}
+      <Eyebrow dot>Your positions · only visible to you</Eyebrow>
+      <h1
+        className="display"
+        style={{ fontSize: 64, marginTop: 14, letterSpacing: "-0.028em" }}
       >
-        <span className="mt-0.5 text-base">🔒</span>
-        <p className="text-text-body">
-          Your balances are encrypted on-chain using iExec Nox. Click{" "}
-          <strong className="text-text-heading">Decrypt Balance</strong> to see your
-          position — this is a gasless client-side operation. No one else can see your amount.
-        </p>
+        Portfolio
+        <span className="display-italic" style={{ color: "var(--pearl)" }}>
+          .
+        </span>
+      </h1>
+
+      {/* Wallet balances */}
+      <div style={{ marginTop: 48 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: 20,
+          }}
+        >
+          <div>
+            <Eyebrow>Wallet balances</Eyebrow>
+            <h2
+              className="display"
+              style={{ fontSize: 32, marginTop: 6, letterSpacing: "-0.02em" }}
+            >
+              Two tokens
+              <span className="display-italic" style={{ color: "var(--pearl)" }}>
+                ,
+              </span>{" "}
+              two visibilities
+            </h2>
+          </div>
+          <div className="mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            {truncateAddress(address)}
+          </div>
+        </div>
+        <WalletBalancesSplit />
       </div>
 
-      {isLoading ? (
-        <div className="flex flex-col gap-3">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-48 rounded-2xl" />
-          ))}
-        </div>
-      ) : funds.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed py-16 text-center"
-          style={{ borderColor: "var(--sf-card-border)" }}>
-          <span className="text-4xl">🏦</span>
-          <p className="font-semibold text-text-heading">No funds to deposit into yet</p>
-          <Button asChild style={{ background: "var(--sf-violet)", color: "#fff" }}>
-            <Link href="/funds">Browse Funds</Link>
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {funds.map((fund) => (
-            <DepositorFundRow key={fund.fundId.toString()} fund={fund} />
-          ))}
-        </div>
-      )}
+      {/* Positions */}
+      <div style={{ marginTop: 56 }}>
+        <Eyebrow>§ Vault positions</Eyebrow>
+        <h2 className="display" style={{ fontSize: 32, marginTop: 8, marginBottom: 24, letterSpacing: "-0.02em" }}>
+          Active vaults
+        </h2>
+
+        {isLoading ? (
+          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading vaults…</div>
+        ) : funds.length === 0 ? (
+          <div
+            style={{
+              padding: "64px 32px",
+              textAlign: "center",
+              border: "1px dashed var(--border)",
+            }}
+          >
+            <div style={{ color: "var(--text-muted)", marginBottom: 24 }}>
+              No vaults available yet.
+            </div>
+            <Link href="/funds">
+              <SfButton variant="primary">Browse Vaults</SfButton>
+            </Link>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+              background: "var(--border)",
+            }}
+          >
+            {/* Header row */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 160px",
+                background: "var(--bg-2)",
+                padding: "14px 20px",
+              }}
+            >
+              {["Vault", "Shares", "Deposited", "APY", "Status", ""].map((c) => (
+                <div key={c} className="eyebrow">
+                  {c}
+                </div>
+              ))}
+            </div>
+            {funds.map((fund) => (
+              <DepositorPositionRow key={fund.fundId.toString()} fund={fund} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function DepositorFundRow({ fund }: { fund: FundMetadata }) {
+function WalletBalancesSplit() {
+  const { balances: tokenBalances, isLoading: tokenLoading } = useTokenBalances();
+  const { balances: confBalances } = useConfidentialBalances();
+  const { decryptingSymbol, decrypt, getConfidentialDisplay } = useDecryptBalance();
+  const { setOpen: openWrap } = useWrapModal();
+
+  const usdcBalance = tokenBalances.find((b) => b.symbol === "USDC");
+  const cUsdcBalance = confBalances.find((b) => b.symbol === "cUSDC");
+  const cUsdcDisplay = getConfidentialDisplay("cUSDC");
+  const cUsdcResolved = cUsdcDisplay !== null;
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 1,
+        background: "var(--border)",
+      }}
+    >
+      {/* USDC */}
+      <div
+        style={{
+          background: "var(--surface)",
+          padding: "32px 32px 28px",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 240,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 999,
+                background: "oklch(0.58 0.15 250)",
+                display: "grid",
+                placeItems: "center",
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 600,
+                fontFamily: "var(--font-display)",
+                fontStyle: "italic",
+                flexShrink: 0,
+              }}
+            >
+              $
+            </div>
+            <div>
+              <div style={{ fontSize: 15 }}>USDC</div>
+              <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.06em", marginTop: 2 }}>
+                USD COIN · PUBLIC
+              </div>
+            </div>
+          </div>
+          <SfTag tone="neutral">Visible on-chain</SfTag>
+        </div>
+
+        <div style={{ marginTop: 28, flex: 1 }}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Balance</div>
+          <div
+            className="mono tabular"
+            style={{ fontSize: 44, letterSpacing: "-0.02em" }}
+          >
+            {tokenLoading ? "—" : (usdcBalance?.formatted ?? "0.00")}
+          </div>
+          <div className="mono" style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+            USD Coin · ERC-20
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 20,
+            paddingTop: 16,
+            borderTop: "1px solid var(--border)",
+            display: "flex",
+            gap: 10,
+          }}
+        >
+          <SfButton
+            variant="secondary"
+            size="sm"
+            style={{ flex: 1 }}
+            onClick={() => openWrap(true)}
+          >
+            Wrap to cUSDC
+          </SfButton>
+        </div>
+      </div>
+
+      {/* cUSDC */}
+      <div
+        style={{
+          background: "var(--surface)",
+          padding: "32px 32px 28px",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 240,
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* Pearl corner accents */}
+        <span style={{ position: "absolute", top: 0, right: 0, width: 2, height: 40, background: "var(--pearl)" }} />
+        <span style={{ position: "absolute", top: 0, right: 0, width: 40, height: 2, background: "var(--pearl)" }} />
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 999,
+                background: "linear-gradient(135deg, var(--pearl), var(--pearl-deep))",
+                display: "grid",
+                placeItems: "center",
+                flexShrink: 0,
+                color: "oklch(0.14 0.008 60)",
+              }}
+            >
+              <LockIcon size={14} open={cUsdcResolved} />
+            </div>
+            <div>
+              <div style={{ fontSize: 15 }}>cUSDC</div>
+              <div className="mono" style={{ fontSize: 10, color: "var(--pearl)", letterSpacing: "0.06em", marginTop: 2 }}>
+                CONFIDENTIAL · IEXEC NOX
+              </div>
+            </div>
+          </div>
+          <SfTag tone={cUsdcResolved ? "green" : "encrypted"}>
+            {cUsdcResolved ? "Decrypted" : "Sealed"}
+          </SfTag>
+        </div>
+
+        <div style={{ marginTop: 28, flex: 1 }}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Balance</div>
+          <div
+            className="mono tabular"
+            style={{ fontSize: 44, letterSpacing: "-0.02em", color: cUsdcResolved ? "var(--text)" : "var(--pearl)" }}
+          >
+            <Scramble
+              value={cUsdcDisplay ?? "0"}
+              length={7}
+              resolved={cUsdcResolved}
+            />
+          </div>
+          <div className="mono" style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+            {cUsdcResolved ? "cUSDC · decrypted" : "Only you can decrypt this value"}
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 20,
+            paddingTop: 16,
+            borderTop: "1px solid var(--border)",
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          {cUsdcResolved ? (
+            <>
+              <Link href="/funds" style={{ flex: 1 }}>
+                <SfButton variant="secondary" size="sm" style={{ width: "100%" }}>
+                  Deposit into vault
+                </SfButton>
+              </Link>
+            </>
+          ) : (
+            <SfButton
+              variant="primary"
+              size="sm"
+              style={{ flex: 1 }}
+              disabled={decryptingSymbol === "cUSDC"}
+              onClick={() => decrypt("cUSDC")}
+            >
+              {decryptingSymbol === "cUSDC" ? "Decrypting…" : "Sign to reveal"}
+            </SfButton>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DepositorPositionRow({ fund }: { fund: FundMetadata }) {
   const { position, decrypting, decryptBalance, decryptError } = useMyPosition(fund.fundId);
   const depositHook = useRequestDeposit();
   const redeemHook = useRequestRedeem();
   const claimHook = useClaimRedemption();
+  const { metrics } = useSubVaultMetrics(fund.fundId);
 
+  const [hover, setHover] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
   const [redeemAmount, setRedeemAmount] = useState("");
-  const [showDeposit, setShowDeposit] = useState(false);
-  const [showRedeem, setShowRedeem] = useState(false);
-  const [showClaim, setShowClaim] = useState(false);
+
+  const [aaveBps, fixedBps] = fund.allocationBps;
+  const blendedApyBps = (aaveBps * metrics.apys[0] + fixedBps * metrics.apys[1]) / 10_000;
+  const blendedApyPct = blendedApyBps / 100;
+
+  const balanceResolved = !decrypting && position.decryptedBalance !== null;
 
   return (
-    <Card
-      className="rounded-2xl border"
-      style={{ background: "var(--sf-card-bg)", borderColor: "var(--sf-card-border)" }}
-    >
-      <CardHeader className="px-5 pt-5 pb-0">
-        <div className="flex items-center justify-between gap-2">
+    <>
+      <div
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 160px",
+          alignItems: "center",
+          padding: "20px 20px",
+          background: hover ? "var(--surface-2)" : "var(--surface)",
+          cursor: "pointer",
+          position: "relative",
+          transition: "background 150ms",
+        }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        {hover && (
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 2,
+              background: "var(--pearl)",
+            }}
+          />
+        )}
+        {/* Vault */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 2,
+              background: "linear-gradient(135deg, var(--pearl), var(--pearl-deep))",
+              flexShrink: 0,
+            }}
+          />
           <div>
-            <h3 className="text-base font-semibold text-text-heading">{fund.name}</h3>
-            <p className="text-xs text-text-muted">
-              by {truncateAddress(fund.manager)} · Fund #{fund.fundId.toString()}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            {position.hasPendingRedeem && (
-              <span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-400">
-                Redeem Pending
-              </span>
-            )}
-            {position.isClaimable && (
-              <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
-                Ready to Claim
-              </span>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="px-5 py-4">
-        <div className="mb-4">
-          <DepositorPositionCard fundId={fund.fundId} fundName={fund.name} />
-        </div>
-
-        {/* Balance row */}
-        <div
-          className="mb-4 flex items-center justify-between rounded-xl px-3 py-2"
-          style={{ background: "var(--surface)", border: "1px solid var(--surface-border)" }}
-        >
-          <span className="text-sm text-text-muted">Your Balance</span>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-text-heading">
-              {position.decryptedBalance !== null
-                ? `${position.decryptedBalance} sfUSDC`
-                : "●●●●●"}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 px-2 text-xs"
-              style={{ borderColor: "var(--sf-violet-border)", color: "var(--sf-violet-text)" }}
-              disabled={decrypting}
-              onClick={decryptBalance}
-            >
-              {decrypting ? "Decrypting..." : "Decrypt"}
-            </Button>
-          </div>
-        </div>
-        {decryptError && (
-          <p className="mb-3 text-xs text-red-400">{decryptError}</p>
-        )}
-
-        {/* Deposit form */}
-        {showDeposit && (
-          <div className="mb-3 flex flex-col gap-2">
-            <p className="text-xs text-text-muted">
-              Make sure you have cUSDC first. Wrap USDC on the{" "}
-              <Link href="/dashboard" className="underline underline-offset-2" style={{ color: "var(--sf-violet-text)" }}>
-                Dashboard
-              </Link>
-              .
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="Amount (USDC)"
-                className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-violet-400"
-                style={{ borderColor: "var(--sf-card-border)" }}
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-              />
-              <Button
-                size="sm"
-                style={{ background: "var(--sf-violet)", color: "#fff" }}
-                disabled={!depositAmount || depositHook.step !== "idle"}
-                onClick={async () => {
-                  const ok = await depositHook.requestDeposit(fund.fundId, depositAmount);
-                  if (ok) { setDepositAmount(""); setShowDeposit(false); }
-                }}
-              >
-                {depositHook.step === "idle" || depositHook.step === "confirmed" || depositHook.step === "error"
-                  ? "Deposit"
-                  : depositHook.step === "encrypting"
-                  ? "Encrypting..."
-                  : "Depositing..."}
-              </Button>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>{fund.name}</div>
+            <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+              {truncateAddress(fund.manager)}
             </div>
-            {depositHook.error && <p className="text-xs text-red-400">{depositHook.error}</p>}
           </div>
-        )}
-
-        {/* Redeem form */}
-        {showRedeem && (
-          <div className="mb-3 flex flex-col gap-2">
-            <p className="text-xs text-text-muted">
-              Redeem is always available regardless of reveal status.
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="Shares to redeem"
-                className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-violet-400"
-                style={{ borderColor: "var(--sf-card-border)" }}
-                value={redeemAmount}
-                onChange={(e) => setRedeemAmount(e.target.value)}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                style={{ borderColor: "var(--sf-violet-border)", color: "var(--sf-violet-text)" }}
-                disabled={!redeemAmount || redeemHook.step !== "idle"}
-                onClick={async () => {
-                  const ok = await redeemHook.requestRedeem(fund.fundId, redeemAmount);
-                  if (ok) { setRedeemAmount(""); setShowRedeem(false); }
-                }}
-              >
-                {redeemHook.step === "idle" || redeemHook.step === "confirmed" || redeemHook.step === "error"
-                  ? "Request Redeem"
-                  : redeemHook.step === "encrypting"
-                  ? "Encrypting..."
-                  : "Submitting..."}
-              </Button>
-            </div>
-            {redeemHook.error && <p className="text-xs text-red-400">{redeemHook.error}</p>}
-          </div>
-        )}
-
-        {/* Claim — one click once manager has processed the redeem */}
-        {showClaim && (
-          <div className="mb-3 flex flex-col gap-2">
-            <p className="text-xs text-text-muted">
-              Your redemption is ready. Click to receive your cUSDC.
-            </p>
-            <Button
-              size="sm"
-              style={{ background: "var(--sf-violet)", color: "#fff" }}
-              disabled={claimHook.step !== "idle"}
-              onClick={async () => {
-                const ok = await claimHook.claimRedemption(fund.fundId);
-                if (ok) setShowClaim(false);
-              }}
-            >
-              {claimHook.step === "idle" || claimHook.step === "confirmed" || claimHook.step === "error"
-                ? "Claim cUSDC"
-                : "Claiming..."}
-            </Button>
-            {claimHook.error && <p className="text-xs text-red-400">{claimHook.error}</p>}
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            className="flex-1 text-sm"
-            onClick={() => { setShowDeposit(!showDeposit); setShowRedeem(false); setShowClaim(false); depositHook.reset(); }}
-          >
-            {showDeposit ? "Cancel" : "Deposit"}
-          </Button>
-          <Button
-            variant="outline"
-            className="flex-1 text-sm"
-            onClick={() => { setShowRedeem(!showRedeem); setShowDeposit(false); setShowClaim(false); redeemHook.reset(); }}
-          >
-            {showRedeem ? "Cancel" : "Withdraw"}
-          </Button>
-          {position.isClaimable && (
-            <Button
-              className="flex-1 text-sm"
-              style={{ background: "var(--sf-violet)", color: "#fff" }}
-              onClick={() => { setShowClaim(!showClaim); setShowDeposit(false); setShowRedeem(false); claimHook.reset(); }}
-            >
-              {showClaim ? "Cancel" : "Claim cUSDC"}
-            </Button>
+        </div>
+        {/* Shares */}
+        <div className="mono tabular" style={{ fontSize: 13 }}>
+          <Scramble
+            value={position.decryptedBalance?.toString() ?? "0"}
+            length={6}
+            resolved={balanceResolved}
+          />
+        </div>
+        {/* Deposited */}
+        <div className="mono tabular" style={{ fontSize: 13, color: "var(--text-dim)" }}>
+          —
+        </div>
+        {/* APY */}
+        <div className="mono tabular" style={{ fontSize: 13, color: "var(--green)" }}>
+          {blendedApyPct > 0 ? (
+            <Ticker
+              value={blendedApyPct}
+              format={(v) => v.toFixed(2) + "%"}
+              interval={1200}
+              jitter={0.0003}
+            />
+          ) : (
+            "—"
           )}
-          <Button
-            asChild
-            variant="outline"
-            className="text-sm"
-            style={{ borderColor: "var(--sf-card-border)" }}
-          >
-            <Link href={`/fund/${fund.fundId}`}>Details</Link>
-          </Button>
         </div>
-      </CardContent>
-    </Card>
+        {/* Status */}
+        <div>
+          {position.isClaimable ? (
+            <SfTag tone="green">Claimable</SfTag>
+          ) : position.hasPendingRedeem ? (
+            <SfTag tone="accent">Redeem Pending</SfTag>
+          ) : (
+            <SfTag tone="neutral">Active</SfTag>
+          )}
+        </div>
+        {/* Action */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              decryptBalance();
+            }}
+            disabled={decrypting || balanceResolved}
+            style={{
+              fontSize: 11,
+              color: balanceResolved ? "var(--green)" : "var(--pearl)",
+              background: "none",
+              cursor: balanceResolved || decrypting ? "default" : "pointer",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase" as const,
+              padding: "4px 8px",
+              borderRadius: 2,
+              border: "1px solid " + (balanceResolved ? "var(--green)" : "var(--pearl)"),
+              transition: "opacity 150ms",
+            }}
+          >
+            {decrypting ? "…" : balanceResolved ? "Decrypted" : "Decrypt"}
+          </button>
+          <Link
+            href={`/fund/${fund.fundId}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ fontSize: 11, color: "var(--text-muted)", textDecoration: "none" }}
+          >
+            View →
+          </Link>
+        </div>
+      </div>
+
+      {/* Expanded actions */}
+      {expanded && (
+        <div
+          style={{
+            background: "var(--bg-2)",
+            padding: "20px 20px 20px 80px",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          {decryptError && (
+            <div style={{ marginBottom: 12, fontSize: 12, color: "var(--red)" }}>{decryptError}</div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+            {/* Deposit */}
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Deposit</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <SfInput
+                  type="number"
+                  placeholder="Amount (cUSDC)"
+                  mono
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <SfButton
+                  variant="primary"
+                  size="sm"
+                  disabled={!depositAmount || depositHook.step !== "idle"}
+                  onClick={async () => {
+                    const ok = await depositHook.requestDeposit(fund.fundId, depositAmount);
+                    if (ok) setDepositAmount("");
+                  }}
+                >
+                  {depositHook.step === "idle" || depositHook.step === "confirmed" || depositHook.step === "error"
+                    ? "Deposit"
+                    : depositHook.step === "encrypting"
+                    ? "Encrypting…"
+                    : "Depositing…"}
+                </SfButton>
+              </div>
+              {depositHook.error && (
+                <div style={{ fontSize: 11, color: "var(--red)", marginTop: 6 }}>{depositHook.error}</div>
+              )}
+              {depositHook.step === "confirmed" && (
+                <div style={{ fontSize: 11, color: "var(--green)", marginTop: 6 }}>Deposited.</div>
+              )}
+            </div>
+
+            {/* Redeem */}
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Redeem</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <SfInput
+                  type="number"
+                  placeholder="Shares"
+                  mono
+                  value={redeemAmount}
+                  onChange={(e) => setRedeemAmount(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <SfButton
+                  variant="secondary"
+                  size="sm"
+                  disabled={!redeemAmount || redeemHook.step !== "idle"}
+                  onClick={async () => {
+                    const ok = await redeemHook.requestRedeem(fund.fundId, redeemAmount);
+                    if (ok) setRedeemAmount("");
+                  }}
+                >
+                  {redeemHook.step === "idle" || redeemHook.step === "confirmed" || redeemHook.step === "error"
+                    ? "Redeem"
+                    : redeemHook.step === "encrypting"
+                    ? "Encrypting…"
+                    : "Submitting…"}
+                </SfButton>
+              </div>
+              {redeemHook.error && (
+                <div style={{ fontSize: 11, color: "var(--red)", marginTop: 6 }}>{redeemHook.error}</div>
+              )}
+            </div>
+
+            {/* Claim */}
+            {position.isClaimable && (
+              <div>
+                <div className="eyebrow" style={{ marginBottom: 8 }}>Claim</div>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                  Redemption processed. Click to receive cUSDC.
+                </p>
+                <SfButton
+                  variant="primary"
+                  size="sm"
+                  disabled={claimHook.step !== "idle"}
+                  onClick={() => claimHook.claimRedemption(fund.fundId)}
+                >
+                  {claimHook.step === "idle" || claimHook.step === "confirmed" || claimHook.step === "error"
+                    ? "Claim cUSDC"
+                    : "Claiming…"}
+                </SfButton>
+                {claimHook.error && (
+                  <div style={{ fontSize: 11, color: "var(--red)", marginTop: 6 }}>{claimHook.error}</div>
+                )}
+                {claimHook.step === "confirmed" && (
+                  <div style={{ fontSize: 11, color: "var(--green)", marginTop: 6 }}>Claimed.</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
