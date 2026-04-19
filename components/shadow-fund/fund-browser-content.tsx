@@ -32,7 +32,7 @@ function AggCell({
   return (
     <div
       style={{
-        padding: "24px 28px",
+        padding: "36px 28px",
         borderRight: last ? "none" : "1px solid var(--border)",
       }}
     >

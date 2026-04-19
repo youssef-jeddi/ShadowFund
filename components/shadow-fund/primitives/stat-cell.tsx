@@ -18,7 +18,7 @@ export function StatCell({ label, value, sub, tone = "default", last = false, no
   return (
     <div
       style={{
-        padding: "28px 24px 28px 0",
+        padding: "40px 28px",
         borderRight: last ? "none" : "1px solid var(--border)",
         borderBottom: noBorderBottom ? "none" : "1px solid var(--border)",
       }}
