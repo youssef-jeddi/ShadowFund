@@ -252,7 +252,7 @@ export function FundBrowserContent() {
               padding: "14px 20px",
             }}
           >
-            {["Vault", "Strategy", "APY", "TVL", "Users", "Inception"].map((c) => (
+            {["Vault", "Strategy", "APY", "Deployed", "Users", "Inception"].map((c) => (
               <div key={c} className="eyebrow">
                 {c}
               </div>

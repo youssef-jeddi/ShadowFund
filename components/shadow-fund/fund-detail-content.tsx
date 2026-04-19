@@ -175,9 +175,9 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
           tone="green"
         />
         <StatCell
-          label="TVL"
+          label="Deployed"
           value={`$${(Number(formatUnits(metrics.totalDeployed, 6))).toFixed(2)}`}
-          sub="cUSDC · public total"
+          sub="aUSDC · Aave v3"
         />
         <StatCell
           label="Depositors"
@@ -269,7 +269,7 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
                   </div>
                   <p style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6 }}>
                     Individual deposit amounts and per-user balances are encrypted by iExec Nox.
-                    The manager and all observers see only aggregate TVL — never who deposited what.
+                    Observers see only the publicly-deployed Aave position; full TVL decrypts to the manager alone.
                   </p>
                 </div>
               </>

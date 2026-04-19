@@ -20,7 +20,7 @@ function riskTone(risk: string): "green" | "accent" | "red" {
   return "accent";
 }
 
-function formatTvl(n: bigint): string {
+function formatDeployed(n: bigint): string {
   const usdc = Number(n) / 1e6;
   if (usdc >= 1_000_000) return "$" + (usdc / 1_000_000).toFixed(2) + "M";
   if (usdc >= 1_000) return "$" + (usdc / 1_000).toFixed(1) + "K";
@@ -48,7 +48,7 @@ export function VaultListRow({ fund, metrics }: VaultListRowProps) {
   const [hover, setHover] = useState(false);
   const risk = riskLevel(fund.allocationBps);
   const apy = metrics ? weightedApy(metrics, fund.allocationBps) : null;
-  const tvl = metrics ? formatTvl(metrics.totalDeployed) : "—";
+  const deployed = metrics ? formatDeployed(metrics.totalDeployed) : "—";
   const strategy = `Aave ${fund.allocationBps[0] / 100}% · Fixed ${fund.allocationBps[1] / 100}%`;
 
   return (
@@ -127,11 +127,11 @@ export function VaultListRow({ fund, metrics }: VaultListRowProps) {
             "—"
           )}
         </div>
-        {/* TVL */}
+        {/* Deployed */}
         <div style={{ fontSize: 13 }}>
-          <span className="mono tabular">{tvl}</span>
+          <span className="mono tabular">{deployed}</span>
           <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-            cUSDC · public
+            aUSDC · Aave v3
           </div>
         </div>
         {/* Users */}
