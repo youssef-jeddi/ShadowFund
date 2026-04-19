@@ -14,7 +14,12 @@ interface UseCreateFundResult {
   error: string | null;
   txHash: `0x${string}` | undefined;
   fundId: bigint | undefined;
-  createFund: (name: string, description: string, perfFeeBps: number) => Promise<bigint | null>;
+  createFund: (
+    name: string,
+    description: string,
+    perfFeeBps: number,
+    allocationBps: readonly [number, number],
+  ) => Promise<bigint | null>;
   reset: () => void;
 }
 
@@ -36,9 +41,20 @@ export function useCreateFund(): UseCreateFundResult {
   }, [resetWrite]);
 
   const createFund = useCallback(
-    async (name: string, description: string, perfFeeBps: number): Promise<bigint | null> => {
+    async (
+      name: string,
+      description: string,
+      perfFeeBps: number,
+      allocationBps: readonly [number, number],
+    ): Promise<bigint | null> => {
       if (!("SHADOW_FUND_VAULT" in CONTRACTS)) {
         setError("ShadowFundVault not deployed yet — run npm run deploy:arb");
+        setStep("error");
+        return null;
+      }
+
+      if (allocationBps[0] + allocationBps[1] !== 10000) {
+        setError("Allocation must sum to 10000 bps (100%).");
         setStep("error");
         return null;
       }
@@ -52,7 +68,12 @@ export function useCreateFund(): UseCreateFundResult {
           address: (CONTRACTS as Record<string, `0x${string}`>).SHADOW_FUND_VAULT,
           abi: shadowFundVaultAbi,
           functionName: "createFund",
-          args: [name, description, BigInt(perfFeeBps)],
+          args: [
+            name,
+            description,
+            BigInt(perfFeeBps),
+            [BigInt(allocationBps[0]), BigInt(allocationBps[1])] as const,
+          ],
           ...gasOverrides,
         });
 

@@ -1,6 +1,6 @@
-# ShadowFund — Confidential Investment Vault with Real Aave Yield
+# ShadowFund — Input-Privacy Investment Vault
 
-> Blind funds come to DeFi. A fund manager runs an encrypted investment strategy and deploys real capital to Aave v3. Depositors earn real USDC yield while the strategy, deposit amounts, and share balances stay encrypted on-chain — until the manager triggers an irreversible Reveal.
+> A whale depositing $1M and a retail user depositing $100 look **identical on-chain**. Each depositor's deposit amount, share balance, and yield are encrypted end-to-end via iExec Nox — only their own wallet can decrypt. The manager's strategy is **fully public**: a `uint256[2] allocationBps` mix across two USDC-only sub-vaults (Aave v3 + a fixed-8% reward pool) earning real yield.
 
 Built for the **iExec Vibe Coding Challenge** (Confidential Vault track). Deployed on Arbitrum Sepolia.
 
@@ -8,63 +8,35 @@ Built for the **iExec Vibe Coding Challenge** (Confidential Vault track). Deploy
 
 ## What is ShadowFund?
 
-ShadowFund brings the TradFi concept of "blind funds" to DeFi using [iExec Nox](https://docs.iex.ec/nox-protocol/). A manager commits an encrypted WETH/USDC allocation claim, depositors trustlessly put cUSDC in, and the vault supplies productive capital to **Aave v3** to earn real yield. At period end the manager reveals the strategy and is scored on two axes:
+ShadowFund is an on-chain investment vault with **input privacy** — the Aztec model. Depositors contribute via ERC-7984 `confidentialTransferAndCall`; the vault's receiver callback mints encrypted shares (`euint256`) inline. Per-depositor state (`shares`, lifetime `deposited`) is stored as Nox handles with ACL scoped to the depositor, so only that wallet can decrypt their own numbers via `handleClient.decrypt(handle)`.
 
-1. **Real yield captured** from the Aave USDC supply (plaintext, auditable).
-2. **Allocation alpha** — the revealed WETH bps vs a 50/50 benchmark, computed from Chainlink ETH/USD over the fund's lifetime.
+The manager commits a **public** `uint256[VAULT_COUNT] allocationBps` at fund creation and can rebalance future deploys via `updateAllocation`. Capital fans out across two ERC-4626 sub-vaults earning real yield:
 
-**Standards / infra:** ERC-7984 (confidential tokens) · ERC-7540 (async vault, hybrid fast-path) · iExec Nox ACL · Aave v3 · Chainlink Data Feeds · ChainGPT API
+1. **`AaveUSDCVault`** — ERC-4626 around Aave v3 USDC supply (variable APY).
+2. **`FixedYieldVault`** — deployer-seeded 500 USDC reward pool at fixed 8% APY. Stable leg that differentiates from Aave's variable rate.
 
----
+Redeem is fully encrypted (`Nox.div(shareAmt × totalAssets, totalShares)`) — a hybrid flow: atomic fast-path when `getFundTotalDeployed == 0`, ERC-7540-style queue slow-path otherwise.
 
-## Features
-
-- **Encrypted strategy** — the WETH basis-points allocation is stored as an `euint256` and only the manager can decrypt it pre-reveal.
-- **Encrypted share balances** — each depositor's position is stored as a per-user `euint256` that only they can decrypt via the Nox SDK.
-- **Auto-deposit** — depositing is atomic. Depositors call `cUSDC.confidentialTransferAndCall(vault, …, abi.encode(fundId))` and the vault's ERC-7984 receiver callback mints encrypted shares inline. No manager action required.
-- **Hybrid redeem** — when the fund has no capital supplied to Aave (`fundPrincipal == 0`), `requestRedeem` settles atomically in one tx using ERC-4626 proportional math in the encrypted domain. When there is live Aave liquidity, it falls back to the ERC-7540 async queue so the manager can first withdraw enough from Aave, then call `processRedeem`, then the user claims.
-- **Real Aave v3 yield** — 100% of productive capital is supplied to the Arb Sepolia USDC reserve via a 2-step manager-driven flow (`initiateSupply` → off-chain TEE decrypt → `finalizeSupply`). Withdraw + re-wrap inflates the vault's encrypted `totalAssets`, so every existing share is worth more.
-- **Virtual asset allocation** — the encrypted `wethBps` is a manager *claim*, not a physical leg. At reveal it's scored against a 50/50 ETH/USDC benchmark using Chainlink ETH/USD price delta. This lets the fund compete on allocation skill while keeping all real capital in a single audited yield source.
-- **One-way reveal** — once `revealStrategy` is called, the encrypted WETH bps handle is made publicly decryptable via `Nox.allowPublicDecryption`. The encrypted `totalAssets` is also unsealed so the final NAV can be verified.
-- **ChainGPT strategy analysis** — after reveal, a natural-language report is generated covering both the real Aave yield and the allocation alpha, via an `/api/analyze-strategy` route calling the ChainGPT API.
+**Standards / infra:** ERC-7984 (confidential tokens) · ERC-7540 (async redeem, hybrid) · ERC-4626 (sub-vaults + meta math) · iExec Nox ACL · Aave v3 · ChainGPT API.
 
 ---
 
 ## Privacy Map
 
-This is an honest, line-by-line map of what ShadowFund actually hides vs reveals.
-
 | Data | Privacy | Why / how |
 |---|---|---|
-| Strategy (WETH bps) | **Encrypted** pre-reveal, public post-reveal | Stored as `euint256 encryptedWethBps`. Manager has the decrypt ACL until `revealStrategy`, which calls `Nox.allowPublicDecryption`. |
-| Fund TVL (`totalAssets`) | **Encrypted** pre-reveal, public post-reveal | Per-fund encrypted aggregate. Only the manager has the decrypt ACL before reveal. Unsealed on reveal for audit. |
-| Individual share balance | **Encrypted (permanent)** | Per-user `euint256 shares[user]`. Only the user can decrypt, even after reveal. |
-| Individual deposit amount | **Encrypted on the wire** | The ERC-7984 `confidentialTransferAndCall` ingests an encrypted handle + proof; the plaintext amount never leaves the client. |
-| Individual redeem amount | **Encrypted on the wire** | Same mechanism, via `requestRedeem(externalEuint256, proof)`. |
-| Depositor identity (who deposited) | **PUBLIC** (unavoidable at the ERC-7984 layer) | The cUSDC `Transfer` event fires from the depositor's EOA. Our own `Deposited(fundId)` event is identity-free, but the token-layer event is not. See "Identity leak disclosure" below. |
-| Depositor count (`depositorCount`) | **Public** | Plaintext storage field — used for UI and would leak from Transfer events anyway. |
-| Per-fund Aave principal (`fundPrincipal`) | **Public (by design)** | The Aave leg is deliberately auditable. Plaintext storage field + `SuppliedToAave(fundId, amount)` / `WithdrawnFromAave(fundId, amount)` events expose aggregate supply/withdraw amounts. This is a load-bearing feature: depositors need to verify capital actually reached Aave. |
-| Total Aave position (`aUSDC.balanceOf(vault)`) | **Public** | Aave aTokens are a public ERC-20 balance. |
-| Realized yield | **Public** (per fund) | Derived from `getFundYield(fundId) = fundAValue − fundPrincipal`. No secret here — the design explicitly makes the yield claim auditable. |
-| Allocation alpha score | **Public post-reveal** | Computed on-chain from the revealed wethBps and Chainlink ETH/USD. |
+| `shares[depositor]` | **Encrypted (permanent)** | `euint256` handle; only the depositor can decrypt via Nox ACL. |
+| `deposited[depositor]` | **Encrypted (permanent)** | Cumulative lifetime deposits (never decremented). Same ACL. |
+| `totalAssets` / `totalShares` | **Encrypted**; manager-ACL | Used inside `Nox.div` for pro-rata redeem; manager can TVL-decrypt client-side. |
+| Individual deposit amount on the wire | **Encrypted** | ERC-7984 `confidentialTransferAndCall` ingests an encrypted handle + proof. |
+| Individual redeem amount on the wire | **Encrypted** | Same, via `requestRedeem(externalEuint256, proof)`. |
+| `allocationBps[VAULT_COUNT]` | **PUBLIC (by design)** | Manager's mix is transparent — a commitment depositors can vote on with their deposits. |
+| `subVaultShares[fundId][i]`, sub-vault USDC | **Public aggregate** | Used by `getFundTotalDeployed` and by the UI's per-vault deployed display. |
+| Depositor identity | **PUBLIC** (ERC-7984 layer) | cUSDC's own `Transfer` event logs the depositor EOA. Amounts are encrypted; identities are not. This is structural to ERC-7984. |
 
 ### Design intent
-> **We hide _how much_ the strategy holds and _how much_ each depositor put in. We intentionally reveal _how much the manager has supplied to Aave_ so the yield story is verifiable.**
 
-These two goals are in tension — we can't hide individual amounts *and* publish a precise aggregate. The resolution:
-
-- **Individual amounts** stay encrypted through every vault-side operation (deposit, share mint, redeem, share burn, payout transfer).
-- **Aggregate Aave flows** leak only the values the manager *chose* to push to Aave — the vault's own encrypted `totalAssets` can be strictly larger than `fundPrincipal` (the difference is idle cUSDC awaiting redemption).
-- Observers see a lower bound on fund capital (≥ `fundPrincipal`) but cannot see the true TVL or any individual depositor's stake.
-
-### Identity leak disclosure
-
-Amounts are encrypted; **identities are not**. Even though ShadowFund's own `Deposited(uint256 fundId)` event deliberately omits the depositor address, the underlying ERC-7984 cUSDC `Transfer(from, to, …)` event logs `from = depositor EOA` and `to = vault`. Anyone can filter that event to learn *who* deposited into *which* fund (and when), just not *how much*. This is a property of the token standard, not the vault.
-
-### Other known side-channels
-- **Single-depositor trivialization** — if a fund has exactly one depositor, that depositor's balance trivially equals `totalAssets` post-reveal.
-- **Timing leaks** — deposit/redeem transaction timestamps are public.
-- **Supply-to-Aave is a public aggregate signal** — observers learn when the manager rebalances but not per-user impact.
+> **We hide _how much each depositor put in_. We intentionally reveal _the manager's strategy_.** Copy-trading hurts when retail can infer specific whale positions; it does not hurt when retail can see the fund's broad mix. A transparent strategy is a feature.
 
 ---
 
@@ -74,70 +46,58 @@ Amounts are encrypted; **identities are not**. Even though ShadowFund's own `Dep
 
 | Contract | Responsibility |
 |---|---|
-| `ShadowFundVault.sol` | Multi-fund vault. Per-fund state keyed by `fundId`. Handles create, encrypted setStrategy, auto-mint deposits via ERC-7984 receiver, hybrid redeem, Aave supply/withdraw, reveal, performance scoring. |
-| `ShadowFundShareToken.sol` | Per-fund ERC-7984 view-only facade. Lets wallets see a distinct share "token" per fund; all state lives in the vault. |
-| `PriceOracle.sol` | Chainlink ETH/USD wrapper + Aave USDC supply APY reader (via `AaveDataProvider.getReserveData`). |
-| `AaveAddresses.sol` | Arb Sepolia Aave v3 address book (Pool, DataProvider, USDC, aUSDC, WETH). |
-| `IAavePool.sol` | Minimal `supply` / `withdraw` / `getReserveData` interfaces. |
+| `ShadowFundVault.sol` | Per-fund state keyed by `fundId`. Public `allocationBps[2]` + `updateAllocation`. Auto-mint deposits via ERC-7984 receiver. 2-step TEE `deployCapital` / `finalizeDeployCapital` fan-out. Bulk `withdrawCapital` rewraps back to cUSDC. Hybrid encrypted redeem. |
+| `AaveUSDCVault.sol` | ERC-4626 around Aave v3 USDC supply. |
+| `FixedYieldVault.sol` | ERC-4626 with deployer-seeded 500 USDC reward pool. Accrues at 8% APY. |
+| `ShadowFundShareToken.sol` | Per-fund ERC-7984 view-only facade. |
+| `AaveAddresses.sol` | Arb Sepolia Aave v3 address book (Pool, DataProvider, USDC, aUSDC). |
 
-### Flows
+### Deposit flow (1 tx)
 
-**Auto-deposit (1 tx)**
 ```
 depositor → cUSDC.confidentialTransferAndCall(vault, encHandle, proof, abi.encode(fundId))
-          → cUSDC moves encrypted balance
-          → cUSDC calls vault.onConfidentialTransferReceived(..., amount, data)
-          → vault inlines: shares[from] += amount, totalAssets += amount,
-                           totalShares += amount, depositorCount++, emit Deposited(fundId)
+          → ShadowFundVault.onConfidentialTransferReceived(..., amount: euint256, data)
+              shares[from]    = Nox.add(shares[from], amount)       // running
+              deposited[from] = Nox.add(deposited[from], amount)    // cumulative lifetime
+              totalAssets     = Nox.add(totalAssets, amount)
+              totalShares     = Nox.add(totalShares, amount)
+              Nox.allow each handle to its owner (depositor / manager)
 ```
 
-**Supply to Aave (2 txs, manager-driven, mirrors the ERC-7984 unwrap pattern)**
-```
-Tx1: vault.initiateSupply(fundId, plaintextAmount)
-     → trivially-encrypt amount
-     → cUSDC.unwrap(vault, vault, euint256) → returns unwrapHandle
-     → totalAssets -= amount (kept in lock-step with cUSDC balance)
+### Bulk deploy (2 txs + TEE cooldown)
 
-off-chain: handleClient.publicDecrypt(unwrapHandle) → proof
-
-Tx2: vault.finalizeSupply(fundId, decryptionProof)
-     → cUSDC.finalizeUnwrap(handle, proof) → plaintext USDC lands in vault
-     → USDC.approve(AavePool, amount)
-     → AavePool.supply(USDC, amount, vault, 0)
-     → fundPrincipal += amount, totalPrincipalSum += amount
 ```
+Tx1: vault.deployCapital(fundId, plaintextAmount)
+     → trivially-encrypt amount, cUSDC.unwrap(handle) → pendingUnwrapHandle
+     → totalAssets -= amount (encrypted)
 
-**Withdraw from Aave (1 tx)**
-```
-vault.withdrawFromAave(fundId, amount)
-  → pro-rata cap check against (fundPrincipal × aUSDC.balanceOf / totalPrincipalSum)
-  → AavePool.withdraw(USDC, amount, vault)
-  → cUSDC.wrap(vault, amount) → re-encrypts as cUSDC
-  → totalAssets += amount (any excess over fundPrincipal is realized yield)
-  → fundPrincipal -= min(amount, fundPrincipal)
+off-chain: handleClient.publicDecrypt(pendingUnwrapHandle) → proof
+
+Tx2: vault.finalizeDeployCapital(fundId, proof)
+     → cUSDC.finalizeUnwrap(...) — plaintext USDC lands in vault
+     for i in 0..VAULT_COUNT:
+       slice_i = plaintextAmount × allocationBps[i] / 10000   // last slice gets remainder
+       USDC.approve(approvedVaults[i], slice_i)
+       shares_i = ISubVault(approvedVaults[i]).deposit(slice_i, vault)
+       subVaultShares[fundId][i] += shares_i
+     emit CapitalDeployed(fundId, total, slice0, slice1)
 ```
 
-**Hybrid redeem (fast or slow depending on Aave state)**
+### Hybrid redeem
+
 ```
 user → vault.requestRedeem(fundId, encShares, proof)
 
-if (fundPrincipal == 0):
-    ─── FAST PATH (atomic, single tx) ───
-    payoutAssets = shares × totalAssets / totalShares   (ERC-4626, encrypted)
-    shares[user] -= shares
-    totalShares -= shares
-    totalAssets -= payoutAssets
-    cUSDC.confidentialTransfer(user, payoutAssets)      (atomic exit)
-    emit RedeemClaimed(fundId, user)
+if (getFundTotalDeployed(fundId) == 0):
+    ─── FAST PATH ───
+    payout = Nox.div(Nox.mul(shareAmt, totalAssets), totalShares)   // encrypted ERC-4626
+    atomic burn + cUSDC.confidentialTransfer(user, payout)
 
 else:
-    ─── SLOW PATH (ERC-7540 async queue) ───
-    pendingRedeem[user] += shares
-    emit RedeemRequested(fundId, user)
-
-    # Manager pulls liquidity back from Aave first, then:
-    manager → vault.processRedeem(fundId, user)
-    user    → vault.claimRedemption(fundId)
+    ─── SLOW PATH ───
+    pendingRedeem[user] += shareAmt (encrypted)
+    # manager calls withdrawCapital first (rewraps USDC → cUSDC, grows totalAssets),
+    # then processRedeem(user), then user claims via claimRedemption.
 ```
 
 ---
@@ -149,12 +109,12 @@ else:
 | USDC (ERC-20) | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
 | cUSDC (ERC-7984) | `0x1ccec6bc60db15e4055d43dc2531bb7d4e5b808e` |
 | Aave v3 Pool | `0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff` |
-| Aave v3 DataProvider | `0x12373B5085e3b42D42C1D4ABF3B3Cf4Df0E0Fa01` |
 | Aave aUSDC | `0x460b97BD498E1157530AEb3086301d5225b91216` |
-| PriceOracle | `0x8dC6DA7a623A4909230404c0EAAe99553ff88458` |
-| ShadowFundVault | `0x2e04f448a57a4593A1B6cF3FA5eA8a18959DD77d` |
+| AaveUSDCVault | `0xfff39C5BCEf87623De00630bD9DB7bf5Be981546` |
+| FixedYieldVault | `0xcaE8150313B69d4f8E0400fe1b4DB1022c08348d` |
+| **ShadowFundVault** | **`0x29C154427Bb65263A0aF43aAfa7b32c998e6d241`** |
 
-Live addresses are stored in `deployments/arbitrumSepolia.json` and auto-exported to `lib/contracts.ts` after every deploy.
+Addresses and ABIs are auto-exported to `lib/contracts.ts` + `lib/shadow-fund-abi.ts` by `scripts/export-abi.ts` after every deploy.
 
 ---
 
@@ -162,9 +122,9 @@ Live addresses are stored in `deployments/arbitrumSepolia.json` and auto-exporte
 
 ### Prerequisites
 - Node.js 20+
-- A WalletConnect project ID — [cloud.reown.com](https://cloud.reown.com)
-- An Arbitrum Sepolia RPC URL (public fallback available, Alchemy recommended for reliability)
-- A deployer wallet with Arbitrum Sepolia ETH
+- WalletConnect project ID ([cloud.reown.com](https://cloud.reown.com))
+- Arbitrum Sepolia RPC URL
+- Deployer wallet with **Arbitrum Sepolia ETH** and **USDC** (for seeding FixedYieldVault reward pool)
 
 ### 1. Install
 
@@ -180,7 +140,6 @@ npm install
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local`:
 ```env
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<your_walletconnect_id>
 NEXT_PUBLIC_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
@@ -188,13 +147,18 @@ ARB_SEPOLIA_RPC=https://sepolia-rollup.arbitrum.io/rpc
 DEPLOYER_PRIVATE_KEY=0x<your_deployer_key>
 ARBISCAN_API_KEY=<your_arbiscan_key>
 CHAINGPT_API_KEY=<your_chaingpt_key>
+
+# Optional — set to 1 to redeploy the sub-vaults too (default: reuse existing)
+REDEPLOY_SUBVAULTS=0
+FIXED_POOL_AMOUNT=500000000    # 500 USDC, FixedYieldVault reward pool
 ```
 
-### 3. Compile + deploy
+### 3. Pre-flight, compile, deploy
 
 ```bash
 npm run compile
-npm run deploy:arb     # deploys PriceOracle + ShadowFundVault, verifies on Arbiscan, exports ABIs
+TS_NODE_PROJECT=tsconfig.hardhat.json npx hardhat run scripts/check-aave.ts --network arbitrumSepolia
+npm run deploy:arb    # deploys ShadowFundVault (+ sub-vaults if REDEPLOY_SUBVAULTS=1) + verifies + exports
 ```
 
 ### 4. Run the frontend
@@ -209,18 +173,18 @@ npm run dev   # → http://localhost:3000
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | Manager → `/dashboard/manager` → **Create Fund** | New fund card with "Sealed" badge |
-| 2 | Manager → **Set Strategy** (single WETH slider, e.g. 7000 bps) | "Strategy Set 🔒" badge appears; setStrategy tx on Arbiscan |
-| 3 | Depositor → `/dashboard` → wrap USDC to cUSDC | cUSDC balance shows |
-| 4 | Depositor → `/fund/{id}` → **Deposit** e.g. 5 cUSDC | Single tx; "Deposited! Shares minted" message; `Deposited(fundId)` event on Arbiscan |
-| 5 | Depositor → click **Decrypt** on balance | Shows 5.00 sfUSDC |
-| 6 | Manager → **Supply to Aave** → enter e.g. 5 → Initiate | `SupplyInitiated` event; TEE cooldown UI |
-| 7 | Manager → **Finalize Supply** | `SuppliedToAave` event; `aUSDC.balanceOf(vault) > 0` |
-| 8 | Wait a few blocks | `getFundYield` returns small positive |
-| 9 | Manager → **Withdraw from Aave** (e.g. 5.01) | `WithdrawnFromAave` event; vault cUSDC balance inflates by 5.01; `fundPrincipal` → 0 |
-| 10 | Depositor → **Redeem** all shares | Single tx auto-settle (fast path, because `fundPrincipal == 0`); depositor receives slightly more than 5 cUSDC back |
-| 11 | Manager → `/fund/{id}/reveal` → complete triple-confirm | `revealStrategy` tx; reveal page shows WETH 70% / USDC 30%; ChainGPT analysis panel |
-| 12 | Verify privacy invariants on Arbiscan | `shareBalanceOf` still returns handle bytes32 even post-reveal; `setStrategy` calldata is opaque; `Deposited` event has only `fundId` |
+| 1 | Manager (wallet A) → `/dashboard/manager` → **Create Fund** with 60/40 allocation | New fund with "Public strategy · Private positions" badge; bar renders 60% Aave / 40% Fixed |
+| 2 | Depositor (wallet B) → `/dashboard` → wrap USDC → cUSDC | cUSDC balance visible |
+| 3 | Depositor → `/fund/{id}` → **Deposit** 100 cUSDC | Encrypted `Deposited(fundId)` event; no amount in log |
+| 4 | Depositor → `/dashboard/depositor` → **Decrypt Position** | Shows `You deposited: 100.00 cUSDC`, `Your shares: 100 sfUSDC`, yield ≈ 0 |
+| 5 | Depositor (wallet C) deposits 500 cUSDC | C's dashboard shows 500; C **cannot** decrypt B's handles — Nox ACL rejection |
+| 6 | Manager → **Update Allocation** 80/20 | `getAllocation(fundId)` returns `[8000, 2000]`; fund card updates |
+| 7 | Manager → **Deploy Capital** 400 USDC | 2-tx + TEE cooldown: `deployCapital` → `finalizeDeployCapital`; `CapitalDeployed(fundId, 400, 320, 80)` |
+| 8 | Wait a few blocks | Per-sub-vault APY populated; blended APY = `(0.8 × AaveAPY + 0.2 × 8%)` |
+| 9 | Manager → **Withdraw Capital** all; Depositor B → **Redeem** 50 shares | Fast path fires; B receives ≥ 50 cUSDC (principal + tiny yield) |
+| 10 | Slow-path test: new fund, deposit, deploy, depositor requests redeem | Enters queue; manager `withdrawCapital` → `processRedeem` → depositor `claimRedemption` |
+| 11 | Manager → **Analyze Fund** | ChainGPT returns 3-section report (allocation vs all-Aave baseline, per-vault yield attribution, reward-pool depth risk) |
+| 12 | Arbiscan: call `getDepositorHandles(0, walletB)` | Returns two opaque `bytes32` — verifiably NOT `0x0…0`, not decryptable by anyone except wallet B |
 
 ---
 
@@ -228,50 +192,56 @@ npm run dev   # → http://localhost:3000
 
 ```
 contracts/
-  AaveAddresses.sol          # Arb Sepolia Aave v3 constants
-  IAavePool.sol              # Minimal Aave + IERC20 interfaces
-  PriceOracle.sol            # Chainlink ETH/USD + Aave APY reader
-  ShadowFundShareToken.sol   # Per-fund ERC-7984 view facade
-  ShadowFundVault.sol        # Main vault: strategy, deposit, redeem, Aave
+  AaveAddresses.sol                 # Arb Sepolia Aave v3 constants (USDC/aUSDC only)
+  IAavePool.sol                     # Minimal Aave + IERC20 interfaces
+  ISubVault.sol                     # ERC-4626 subset the vault calls
+  AaveUSDCVault.sol                 # ERC-4626 → Aave v3 USDC supply
+  FixedYieldVault.sol               # ERC-4626 → 8% APY reward-pool accrual
+  ShadowFundShareToken.sol          # Per-fund ERC-7984 view facade
+  ShadowFundVault.sol               # Vault: public allocation + encrypted deposits + hybrid redeem
+
 scripts/
-  deploy.ts                  # Hardhat deploy + Arbiscan verify
-  export-abi.ts              # ABI + address export to lib/
+  check-aave.ts                     # Pre-flight Aave reserve probe (USDC only)
+  deploy.ts                         # Deploys ShadowFundVault (reuses sub-vaults by default)
+  export-abi.ts                     # ABIs + addresses → lib/
+
 app/
-  (app)/funds/               # Fund browser
-  (app)/dashboard/manager/   # Manager dashboard (strategy, Aave, process redeem)
-  (app)/dashboard/depositor/ # Depositor positions
-  (app)/fund/[id]/           # Fund detail + deposit/redeem
-  (app)/fund/[id]/reveal/    # Reveal + ChainGPT analysis
-  api/analyze-strategy/      # ChainGPT endpoint (Aave yield + allocation alpha)
-  api/audit-contract/        # ChainGPT contract audit
+  (app)/funds/                      # Fund browser (public-allocation mini bar)
+  (app)/dashboard/manager/          # 3-card manager dashboard
+  (app)/dashboard/depositor/        # Depositor positions + encrypted-position card
+  (app)/fund/[id]/                  # Fund detail page
+  api/analyze-strategy/             # ChainGPT 2-vault public-strategy prompt
+  api/audit-contract/               # ChainGPT contract audit
+
 hooks/
-  use-create-fund.ts
-  use-set-strategy.ts
-  use-request-deposit.ts      # atomic confidentialTransferAndCall
-  use-request-redeem.ts       # branches fast/slow on-chain
-  use-process-redeem.ts       # manager-only slow path
-  use-claim-redemption.ts     # slow path final step
-  use-initiate-supply.ts      # Aave supply step 1
-  use-finalize-supply.ts      # Aave supply step 2 (TEE decrypt + supply)
-  use-withdraw-from-aave.ts
-  use-fund-yield.ts           # principal / aValue / yield / APY multicall
-  use-reveal-strategy.ts
-  use-fund.ts
-  use-fund-list.ts
-  use-my-position.ts
-  use-chaingpt-analysis.ts
+  use-create-fund.ts                # createFund(name, description, perfFeeBps, [bps0, bps1])
+  use-update-allocation.ts          # Manager-only rebalance of future deploys
+  use-deploy-capital.ts             # 2-step bulk deploy with TEE cooldown + retryFinalize
+  use-withdraw-capital.ts           # Plaintext bulk pull + rewrap to cUSDC
+  use-subvault-metrics.ts           # APYs, shares, convertToAssets for both sub-vaults
+  use-depositor-position.ts         # Decrypts both depositor handles client-side
+  use-my-position.ts                # Decrypts share balance only
+  use-role-for-fund.ts              # manager / depositor / both / none detection
+  use-request-deposit.ts            # atomic confidentialTransferAndCall
+  use-request-redeem.ts             # branches fast/slow on-chain
+  use-process-redeem.ts / use-claim-redemption.ts
+  use-fund.ts / use-fund-list.ts
+  use-chaingpt-analysis.ts          # 2-vault public-strategy payload
+
 components/shadow-fund/
-  fund-card.tsx
+  fund-card.tsx                     # Public-strategy badge + 2-color mini bar
   fund-browser-content.tsx
-  manager-dashboard-content.tsx
-  depositor-dashboard-content.tsx
+  manager-dashboard-content.tsx     # 3 cards: overview / actions / ChainGPT analysis
+  depositor-dashboard-content.tsx   # Private position card at top of each row
+  depositor-position-card.tsx       # Decrypt shares + deposited + yield
+  update-allocation-modal.tsx       # Slider editor for updateAllocation
   fund-detail-content.tsx
-  reveal-page-content.tsx
-  strategy-sliders.tsx        # single WETH slider + live Aave APY
+  strategy-sliders.tsx              # 2 sliders + sum validator + live APY labels
   chaingpt-analysis-panel.tsx
+
 lib/
-  shadow-fund-abi.ts          # auto-generated
-  contracts.ts                # auto-generated addresses
+  shadow-fund-abi.ts                # auto-generated (vault, shares, 2 sub-vaults, ISubVault)
+  contracts.ts                      # auto-generated addresses
 deployments/
   arbitrumSepolia.json
 ```
@@ -280,19 +250,17 @@ deployments/
 
 ## Key Technical Decisions
 
-**Single vault, many funds.** One `ShadowFundVault.sol` with `mapping(uint256 fundId => Fund)`. Per-fund `ShadowFundShareToken` facades deployed by `createFund()` give ERC-7984-compliant token addresses for wallets.
+**Input privacy, not execution privacy.** The earlier iteration encrypted the manager's 3-way allocation via `euint256[3]` + reveal. This protected the manager's edge but left depositor positions as an afterthought. For the Nox prompt ("protect capital allocations from copy-trading and MEV"), the **depositor's position size** is the economically meaningful secret — whales getting copied hurts, the fund's broad mix being known does not. We removed all encrypted-strategy machinery and added per-depositor `deposited[user]` handles. The result is Aztec-style input privacy: a whale depositing $1M and a retail user depositing $100 produce identical events (amount-wise).
 
-**Nox ACL lifecycle.** Every encrypted mutation calls `Nox.allowThis(handle)` (so the vault can reuse the handle later in the same or next tx) and `Nox.allow(handle, user)` (so the user can decrypt client-side). `Nox.allowTransient(handle, cUSDC)` is required before any cross-contract cUSDC call that consumes the handle (unwrap, confidentialTransfer).
+**Encrypted pro-rata settlement.** Redeem math uses `Nox.div(Nox.mul(shareAmt, totalAssets), totalShares)` — no parallel plaintext shares mapping. The encrypted aggregates are the settlement path; the manager holds ACL on them but the depositor only sees their own side. Stronger privacy than "encrypt inputs, settle in plaintext."
 
-**Strategy collapse: 4 assets → 1.** An earlier iteration had 4 encrypted allocations (ETH/BTC/LINK/USDC) summing to 100%. That couldn't be enforced on-chain because Nox can't revert on an `ebool`, and there was no realistic way to physically execute the basket on testnet. Collapsed to a single `encryptedWethBps` (0-10000) — USDC is implicit — with `Nox.allowPublicDecryption` on reveal so the commitment is auditable.
+**2-step TEE unwrap for bulk deploy.** ERC-7984's receiver callback only exposes `euint256`, so the vault cannot auto-aggregate encrypted deposits into plaintext USDC for Aave. `deployCapital(amount)` unwraps via `cUSDC.unwrap` and waits for the TEE to produce a decryption proof; `finalizeDeployCapital(proof)` completes the unwrap and fans out across sub-vaults. The TEE cooldown is the UX tax here (~30s).
 
-**Virtual allocation + real yield.** Arb Sepolia has no deep Uniswap pool to physically swap USDC↔WETH, so 100% of productive capital goes to the Aave USDC reserve for real yield. The encrypted `wethBps` is the manager's *claim* about how they would have allocated, scored post-reveal as allocation alpha vs a 50/50 benchmark using Chainlink ETH/USD. Depositors get real Aave yield regardless of the claim.
+**`deposited[user]` is lifetime gross, never decremented.** Cost-basis-accurate tracking would require encrypted proportional subtraction on redeem. Out of scope; the UI shows yield as approximate (`shares_decrypted − deposited_decrypted`). Documented as a known simplification in `feedback.md`.
 
-**Why deposits are auto and redeems are hybrid.** ERC-7540 required a 2-step queue for both sides in the earlier draft, which made the demo feel like an intent protocol rather than a vault. We collapsed deposits to an inline receiver-callback mint because the vault already has all the information at callback time. Redeems stay two-mode: the fast path uses encrypted ERC-4626 math (`Nox.mul` + `Nox.div`) and pays out atomically when the fund is fully liquid; the slow path only kicks in when capital is actually supplied to Aave, because the cUSDC needed to settle doesn't physically exist in the vault until the manager withdraws.
+**`updateAllocation` affects future deploys only.** The manager must `withdrawCapital` + redeploy to rebalance already-deployed capital — matches real-world fund mechanics and avoids atomic rebalance complexity. Reverts if `pendingDeployAmount != 0` to prevent mid-flight slice drift.
 
-**ERC-4626 math in the encrypted domain.** An earlier bug had `processRedeem` using a 1:1 share→asset assumption, which meant Aave yield never flowed to exiting depositors. Fixed by doing `payout = shares × totalAssets / totalShares` using `Nox.mul` / `Nox.div` before the burn — in `_autoRedeem` (fast path) and `processRedeem` (slow path) alike.
-
-**Identity leak is documented, not worked around.** The `Deposited(uint256 fundId)` event deliberately omits the depositor address, but the ERC-7984 `Transfer` event at the cUSDC layer still logs `from`. We don't try to paper over this — it's called out in the privacy map above.
+**Sub-vaults reused across redeploys.** Storage layout changes in `ShadowFundVault` require redeploy; `AaveUSDCVault` and `FixedYieldVault` are unchanged ERC-4626 and keep their existing addresses. Old fund data is discarded.
 
 ---
 

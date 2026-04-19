@@ -8,21 +8,25 @@ import { CONTRACTS } from "@/lib/contracts";
 import { estimateGasOverrides } from "@/lib/gas";
 import { formatTransactionError } from "@/lib/utils";
 
-export type WithdrawFromAaveStep = "idle" | "writing" | "confirmed" | "error";
+export type WithdrawCapitalStep = "idle" | "writing" | "confirmed" | "error";
 
-interface UseWithdrawFromAaveResult {
-  step: WithdrawFromAaveStep;
+interface UseWithdrawCapitalResult {
+  step: WithdrawCapitalStep;
   error: string | null;
   txHash: `0x${string}` | undefined;
-  /** amount is plaintext USDC (human-readable string) */
+  /** Plaintext USDC amount to pull back from the 2 sub-vaults. */
   withdraw: (fundId: bigint, amount: string) => Promise<boolean>;
   reset: () => void;
 }
 
 const USDC_DECIMALS = 6;
 
-export function useWithdrawFromAave(): UseWithdrawFromAaveResult {
-  const [step, setStep] = useState<WithdrawFromAaveStep>("idle");
+/**
+ * Manager-only: pulls USDC back from the 2 sub-vaults proportional to current
+ * per-vault exposure, then re-wraps as cUSDC. Share price rises implicitly.
+ */
+export function useWithdrawCapital(): UseWithdrawCapitalResult {
+  const [step, setStep] = useState<WithdrawCapitalStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
@@ -38,13 +42,7 @@ export function useWithdrawFromAave(): UseWithdrawFromAaveResult {
 
   const withdraw = useCallback(
     async (fundId: bigint, amount: string): Promise<boolean> => {
-      if (!("SHADOW_FUND_VAULT" in CONTRACTS)) {
-        setError("ShadowFundVault not deployed yet");
-        setStep("error");
-        return false;
-      }
-
-      const vaultAddress = (CONTRACTS as Record<string, `0x${string}`>).SHADOW_FUND_VAULT;
+      const vaultAddress = CONTRACTS.SHADOW_FUND_VAULT as `0x${string}`;
 
       let parsed: bigint;
       try {
@@ -68,7 +66,7 @@ export function useWithdrawFromAave(): UseWithdrawFromAaveResult {
         const hash = await writeContractAsync({
           address: vaultAddress,
           abi: shadowFundVaultAbi,
-          functionName: "withdrawFromAave",
+          functionName: "withdrawCapital",
           args: [fundId, parsed],
           ...gasOverrides,
         });

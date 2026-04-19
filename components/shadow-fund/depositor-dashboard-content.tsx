@@ -10,6 +10,7 @@ import { useMyPosition } from "@/hooks/use-my-position";
 import { useRequestDeposit } from "@/hooks/use-request-deposit";
 import { useRequestRedeem } from "@/hooks/use-request-redeem";
 import { useClaimRedemption } from "@/hooks/use-claim-redemption";
+import { DepositorPositionCard } from "@/components/shadow-fund/depositor-position-card";
 import { truncateAddress } from "@/lib/utils";
 import type { FundMetadata } from "@/hooks/use-fund-list";
 import Link from "next/link";
@@ -33,7 +34,8 @@ export function DepositorDashboardContent() {
           My Positions
         </h1>
         <p className="mt-1 text-text-body">
-          Your confidential investments. Only you can decrypt your balances.
+          Your position sizes are encrypted on-chain — the fund manager and
+          other depositors cannot see how much you contributed.
         </p>
       </div>
 
@@ -120,6 +122,10 @@ function DepositorFundRow({ fund }: { fund: FundMetadata }) {
       </CardHeader>
 
       <CardContent className="px-5 py-4">
+        <div className="mb-4">
+          <DepositorPositionCard fundId={fund.fundId} fundName={fund.name} />
+        </div>
+
         {/* Balance row */}
         <div
           className="mb-4 flex items-center justify-between rounded-xl px-3 py-2"

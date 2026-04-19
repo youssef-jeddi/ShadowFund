@@ -17,16 +17,24 @@ interface UseChainGptAnalysisResult {
   analyze: (params: AnalyzeParams) => Promise<void>;
 }
 
+/**
+ * 2-element allocation vector (basis points, sum 10_000).
+ * Order: [Aave USDC, Fixed 8%].
+ */
+export type AllocationPair = [number, number];
+
 export interface AnalyzeParams {
   fundName: string;
-  strategy: { wethBps: number };
-  startPriceEth: number;
-  currentPriceEth: number;
-  performanceScoreBps: number;
-  aaveApyBps: number;
-  realYield: number;
-  principal: number;
-  fundAgedays: number;
+  /** Public allocation bps — [AaveUSDC, Fixed]. Sum = 10_000. */
+  allocationBps: AllocationPair;
+  /** Live supply APY as percent (e.g., 4.12) for each sub-vault, same order as allocation. */
+  subVaultAPYs: AllocationPair;
+  /** Total USDC deployed to sub-vaults (display scale: USDC units as number). */
+  totalDeployedUsdc: number;
+  /** Total fund TVL (wrapped cUSDC + deployed USDC), USDC units as number. */
+  totalTvlUsdc: number;
+  depositorCount: number;
+  fundAgeHours: number;
 }
 
 export function useChainGptAnalysis(): UseChainGptAnalysisResult {

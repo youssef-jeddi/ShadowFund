@@ -37,7 +37,8 @@ export function ChainGptAnalysisPanel({
           </h3>
         </div>
         <p className="mt-1 text-sm text-text-muted">
-          AI-powered breakdown of the revealed allocation and its performance.
+          AI-powered breakdown of the public allocation, per-vault yield, and
+          risk profile.
         </p>
       </CardHeader>
 
@@ -45,7 +46,7 @@ export function ChainGptAnalysisPanel({
         {!analysis && !isLoading && !error && (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <p className="text-sm text-text-body">
-              Strategy has been revealed. Run AI analysis to get insights.
+              Run AI analysis on this fund&apos;s public allocation and live APYs.
             </p>
             <Button
               onClick={onAnalyze}

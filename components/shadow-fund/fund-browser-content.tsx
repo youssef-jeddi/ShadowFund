@@ -20,7 +20,7 @@ export function FundBrowserContent() {
           <p className="mt-1 text-text-body">
             Confidential investment strategies powered by{" "}
             <span style={{ color: "var(--sf-violet-text)" }}>iExec Nox</span>.
-            Strategy allocations stay encrypted until the manager reveals.
+            Strategy is public — your position size is private.
           </p>
         </div>
         <Button
@@ -42,10 +42,11 @@ export function FundBrowserContent() {
       >
         <span className="text-lg">🔒</span>
         <p className="text-text-body">
-          <strong className="text-text-heading">What&apos;s private:</strong> strategy
-          allocations, deposit amounts, individual balances.{" "}
-          <strong className="text-text-heading">What&apos;s public:</strong> fund names,
-          manager addresses, depositor count, performance score (post-reveal only).
+          <strong className="text-text-heading">What&apos;s private:</strong> your
+          deposit amount, your share balance, and your yield — a whale and a retail
+          depositor look identical on-chain.{" "}
+          <strong className="text-text-heading">What&apos;s public:</strong> fund
+          name, manager, allocation mix, sub-vault APYs, depositor count, TVL.
         </p>
       </div>
 

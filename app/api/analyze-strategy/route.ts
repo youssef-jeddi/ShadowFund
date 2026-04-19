@@ -1,43 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 
-/**
- * POST /api/analyze-strategy
- *
- * Accepts a revealed 2-asset (WETH/USDC) fund strategy + Aave yield data and
- * returns a ChainGPT-powered natural language analysis of the fund's performance
- * across two dimensions:
- *   (a) real yield captured from Aave v3 USDC supply
- *   (b) allocation alpha — the revealed WETH bps vs a 50/50 benchmark over the
- *       period, using Chainlink ETH/USD delta
- *
- * Body (see AnalyzeParams in hooks/use-chaingpt-analysis.ts):
- *   {
- *     fundName: string,
- *     strategy: { wethBps: number },            // 0-10000
- *     startPriceEth: number,                    // USD
- *     currentPriceEth: number,                  // USD
- *     performanceScoreBps: number,              // allocation alpha in bps
- *     aaveApyBps: number,                       // current Aave USDC supply APY
- *     realYield: number,                        // USDC units (6-decimals plaintext)
- *     principal: number,                        // USDC units currently supplied
- *     fundAgedays: number,
- *   }
- */
-
 const CHAINGPT_API_URL = "https://api.chaingpt.org/chat/stream";
 const CHAINGPT_API_KEY = process.env.CHAINGPT_API_KEY ?? "";
 
+type AllocationPair = [number, number];
+
 interface AnalyzeBody {
   fundName: string;
-  strategy: { wethBps: number };
-  startPriceEth: number;
-  currentPriceEth: number;
-  performanceScoreBps: number;
-  aaveApyBps: number;
-  realYield: number;
-  principal: number;
-  fundAgedays: number;
+  allocationBps: AllocationPair;
+  subVaultAPYs: AllocationPair;
+  totalDeployedUsdc: number;
+  totalTvlUsdc: number;
+  depositorCount: number;
+  fundAgeHours: number;
 }
+
+const SLOT_LABELS = ["Aave USDC", "Fixed 8%"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,7 +38,7 @@ export async function POST(req: NextRequest) {
           {
             role: "system",
             content:
-              "You are a DeFi fund analyst. Analyze a 2-asset confidential fund (WETH + USDC) that supplies its productive capital to Aave v3 for real yield and scores the revealed WETH allocation against a 50/50 benchmark. Return a JSON object with keys: summary, assetBreakdown, performanceInsights, riskAssessment. Each value is 2-3 sentences. Respond ONLY with valid JSON.",
+              "You are a DeFi fund analyst. Analyze a ShadowFund vault that allocates across 2 USDC-only sub-vaults (Aave v3 USDC supply, Fixed 8% reward pool). The manager's allocation mix is fully public on-chain; only individual depositor position sizes are encrypted (input privacy via iExec Nox). Return a JSON object with keys: summary, assetBreakdown, performanceInsights, riskAssessment. Each value is 2-3 sentences. Respond ONLY with valid JSON.",
           },
           { role: "user", content: prompt },
         ],
@@ -119,7 +97,7 @@ export async function POST(req: NextRequest) {
         parsed = JSON.parse(jsonMatch[0]) as typeof parsed;
       }
     } catch {
-      // If parsing fails, fall back to fallback template with raw as summary
+      // If parsing fails, fall back to template with raw as summary
     }
 
     const fallback = getFallbackAnalysis(body);
@@ -139,72 +117,78 @@ export async function POST(req: NextRequest) {
   }
 }
 
+function fmtAllocation(pair: AllocationPair): string {
+  return SLOT_LABELS.map((label, i) => `${label} ${(pair[i] / 100).toFixed(0)}%`).join(" / ");
+}
+
+function fmtApys(pair: AllocationPair): string {
+  return SLOT_LABELS.map((label, i) => `${label} ${pair[i].toFixed(2)}%`).join(" / ");
+}
+
+function blendedApyPct(allocation: AllocationPair, apys: AllocationPair): number {
+  return (allocation[0] * apys[0] + allocation[1] * apys[1]) / 10_000;
+}
+
 function buildPrompt(body: AnalyzeBody): string {
   const {
     fundName,
-    strategy,
-    startPriceEth,
-    currentPriceEth,
-    performanceScoreBps,
-    aaveApyBps,
-    realYield,
-    principal,
-    fundAgedays,
+    allocationBps,
+    subVaultAPYs,
+    totalDeployedUsdc,
+    totalTvlUsdc,
+    depositorCount,
+    fundAgeHours,
   } = body;
 
-  const wethPct = (strategy.wethBps / 100).toFixed(0);
-  const usdcPct = ((10_000 - strategy.wethBps) / 100).toFixed(0);
-  const ethDeltaPct = (
-    ((currentPriceEth - startPriceEth) / (startPriceEth || 1)) *
-    100
-  ).toFixed(2);
-  const alphaPct = (performanceScoreBps / 100).toFixed(2);
-  const apyPct = (aaveApyBps / 100).toFixed(2);
-  const yieldUsdc = (realYield / 1e6).toFixed(4);
-  const principalUsdc = (principal / 1e6).toFixed(2);
+  const blendedPct = blendedApyPct(allocationBps, subVaultAPYs).toFixed(2);
+  const allAavePct = subVaultAPYs[0].toFixed(2);
 
   return `
 Fund Name: ${fundName}
-Fund Age: ${fundAgedays} days
+Fund Age: ${fundAgeHours.toFixed(1)} hours
+Depositor Count: ${depositorCount}
+Total TVL: ${totalTvlUsdc.toFixed(2)} USDC
+Total Deployed: ${totalDeployedUsdc.toFixed(2)} USDC
 
-Revealed Strategy (2-asset basket):
-  WETH: ${wethPct}% (virtual allocation — used for alpha scoring)
-  USDC: ${usdcPct}% (virtual allocation)
+Public Allocation (basis points, sum 10000):
+  ${fmtAllocation(allocationBps)}
 
-Capital Deployment (real):
-  100% of productive capital is supplied to Aave v3 USDC reserve.
-  Current Aave USDC supply APY: ${apyPct}%
-  Principal currently supplied: ${principalUsdc} USDC
-  Realized real yield so far:   ${yieldUsdc} USDC
+Live Sub-Vault APYs:
+  ${fmtApys(subVaultAPYs)}
 
-Allocation Alpha (vs 50/50 benchmark):
-  ETH price delta over period: ${ethDeltaPct}%
-  Manager's alpha score:       ${alphaPct}% (positive = beat 50/50 hold)
+Derived Figures:
+  Blended APY (current mix):      ${blendedPct}%
+  All-Aave baseline APY:          ${allAavePct}%
 
-The fund is confidential: the strategy was encrypted on-chain until now.
+Privacy model: input privacy. Depositor positions (amount deposited, share balance, yield) are encrypted end-to-end via iExec Nox — only the depositor's wallet can decrypt. The manager's allocation is fully public.
+
 Analyze and return JSON with these four sections (2-3 sentences each):
-1. summary — overall approach and outcome
-2. assetBreakdown — how the WETH/USDC split would have performed vs the real USDC-in-Aave deployment
-3. performanceInsights — real Aave yield AND allocation alpha combined
-4. riskAssessment — risk profile given the virtual allocation and real capital routing
+1. summary — overall strategy posture and how it compares to parking 100% in Aave v3 USDC
+2. assetBreakdown — per-sub-vault yield attribution: how each slice's APY × allocation contributes to the blended yield
+3. performanceInsights — blended return vs all-Aave baseline, commenting on whether the Fixed 8% pool's fixed-rate advantage justifies its inclusion given the ${allAavePct}% variable Aave APY
+4. riskAssessment — smart-contract surface (Aave v3 + FixedYieldVault reward pool + iExec Nox ACLs), reward-pool depth risk for the Fixed leg (it's a finite seeded pool, not an on-chain yield source), and the privacy trade-off (manager strategy is transparent by design; only depositor amounts are private)
 `.trim();
 }
 
 function getFallbackAnalysis(body: AnalyzeBody) {
-  const { strategy, performanceScoreBps, aaveApyBps, realYield, principal } = body;
-  const wethPct = (strategy.wethBps / 100).toFixed(0);
-  const usdcPct = ((10_000 - strategy.wethBps) / 100).toFixed(0);
-  const alpha = (performanceScoreBps / 100).toFixed(2);
-  const apy = (aaveApyBps / 100).toFixed(2);
-  const yieldUsdc = (realYield / 1e6).toFixed(4);
-  const principalUsdc = (principal / 1e6).toFixed(2);
-  const alphaPositive = performanceScoreBps >= 0;
+  const {
+    allocationBps,
+    subVaultAPYs,
+    totalDeployedUsdc,
+    totalTvlUsdc,
+    depositorCount,
+  } = body;
+
+  const blended = blendedApyPct(allocationBps, subVaultAPYs).toFixed(2);
+  const allAave = subVaultAPYs[0].toFixed(2);
+  const alpha = (Number(blended) - Number(allAave)).toFixed(2);
+  const fixedTilt = allocationBps[1] >= 5000;
 
   return {
-    summary: `This fund committed a ${wethPct}% WETH / ${usdcPct}% USDC virtual allocation and routed 100% of productive capital to Aave v3 USDC, where it accrues real yield at the current supply APY of ${apy}%. The manager ${alphaPositive ? "outperformed" : "underperformed"} a 50/50 WETH-USDC benchmark by ${alpha}% on allocation alpha.`,
-    assetBreakdown: `The revealed ${wethPct}% WETH claim is scored against Chainlink ETH/USD — no physical WETH exposure was taken. All capital (${principalUsdc} USDC principal) sits in Aave's USDC reserve, earning lending yield (${yieldUsdc} USDC realized so far).`,
-    performanceInsights: `Depositors earn real Aave yield regardless of the manager's allocation claim; the WETH bps only affects the allocation alpha score. With a ${alpha}% alpha and ${yieldUsdc} USDC of realized yield, the combined edge is ${alphaPositive ? "meaningfully positive" : "negative on allocation but still earning base yield"}.`,
-    riskAssessment: `Smart-contract risk is dominated by Aave v3 + iExec Nox confidential contracts. No DEX slippage, no bridging — capital is fully in-protocol on Arbitrum Sepolia. The virtual WETH bet is costless on the downside; the only loss vector beyond Aave itself is reputational (a revealed miss vs the benchmark).`,
+    summary: `This fund publicly commits to a ${fmtAllocation(allocationBps)} mix across Aave v3 USDC and a fixed-8% reward pool, delivering a blended ${blended}% APY. Individual depositor positions are encrypted end-to-end via iExec Nox — ${depositorCount} depositor(s) contribute ${totalTvlUsdc.toFixed(2)} USDC of TVL with no observable per-wallet amounts on-chain.`,
+    assetBreakdown: `Capital splits across two USDC-only yield sources: Aave v3 supply (variable ~${allAave}% APY) and a deployer-seeded 8% fixed-rate pool. With ${totalDeployedUsdc.toFixed(2)} USDC actively deployed, each slice contributes pro-rata to the ${blended}% blended yield — the ${allocationBps[1] / 100}% Fixed allocation adds a yield floor that smooths Aave's variable rate.`,
+    performanceInsights: `The blended ${blended}% APY ${Number(alpha) >= 0 ? "beats" : "trails"} the all-Aave baseline (${allAave}%) by ${alpha} percentage points — pure allocation alpha from tilting toward the fixed-rate leg. ${fixedTilt ? "The Fixed-heavy tilt optimizes for yield stability at the cost of upside when Aave rates spike." : "The Aave-heavy tilt keeps exposure to variable-rate upside while still floor-anchoring via the fixed pool."}`,
+    riskAssessment: `Smart-contract surface is concentrated in Aave v3 USDC + our FixedYieldVault reward pool + iExec Nox ACL machinery. The Fixed leg is a finite deployer-seeded pool (not an on-chain yield source), so its APY holds only while the pool has depth. Privacy-wise, the manager's allocation is intentionally public — only depositor position sizes are encrypted, making whales indistinguishable from retail on-chain.`,
     raw: "(ChainGPT API key not set — showing template analysis)",
   };
 }

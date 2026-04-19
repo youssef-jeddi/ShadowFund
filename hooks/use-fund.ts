@@ -3,24 +3,18 @@
 import { useReadContracts } from "wagmi";
 import { shadowFundVaultAbi } from "@/lib/shadow-fund-abi";
 import { CONTRACTS } from "@/lib/contracts";
-import type { FundMetadata } from "@/hooks/use-fund-list";
+import type { FundMetadata, AllocationPair } from "@/hooks/use-fund-list";
+
+export type { AllocationPair };
 
 export interface FundDetail extends FundMetadata {
-  revealedStrategy: {
-    wethBps: number;
-    usdcBps: number;
-  } | null;
-  performanceScoreBps: number | null;
-  startPriceEth: bigint | null;
+  totalDeployed: bigint;
 }
 
-const vaultAddress = ("SHADOW_FUND_VAULT" in CONTRACTS)
-  ? (CONTRACTS as Record<string, `0x${string}`>).SHADOW_FUND_VAULT
-  : undefined;
+const vaultAddress = CONTRACTS.SHADOW_FUND_VAULT as `0x${string}`;
 
 /**
  * Fetches all data for a single fund by ID.
- * Includes metadata, revealed strategy (if any), and performance score.
  */
 export function useFund(fundId: bigint | undefined) {
   const enabled = !!vaultAddress && fundId !== undefined;
@@ -28,27 +22,21 @@ export function useFund(fundId: bigint | undefined) {
   const { data, isLoading, refetch } = useReadContracts({
     contracts: [
       {
-        address: vaultAddress as `0x${string}`,
+        address: vaultAddress,
         abi: shadowFundVaultAbi,
         functionName: "getFundMetadata",
         args: [fundId ?? 0n],
       },
       {
-        address: vaultAddress as `0x${string}`,
+        address: vaultAddress,
         abi: shadowFundVaultAbi,
-        functionName: "getRevealedStrategy",
+        functionName: "getAllocation",
         args: [fundId ?? 0n],
       },
       {
-        address: vaultAddress as `0x${string}`,
+        address: vaultAddress,
         abi: shadowFundVaultAbi,
-        functionName: "getPerformanceScoreBps",
-        args: [fundId ?? 0n],
-      },
-      {
-        address: vaultAddress as `0x${string}`,
-        abi: shadowFundVaultAbi,
-        functionName: "getStartPriceEth",
+        functionName: "getFundTotalDeployed",
         args: [fundId ?? 0n],
       },
     ],
@@ -60,9 +48,9 @@ export function useFund(fundId: bigint | undefined) {
 
   if (!data || !enabled) return { fund: null, isLoading, refetch };
 
-  const [metaResult, stratResult, scoreResult, startPriceResult] = data;
+  const [metaR, allocR, deployedR] = data;
 
-  if (metaResult.status !== "success" || !metaResult.result) {
+  if (metaR.status !== "success" || !metaR.result) {
     return { fund: null, isLoading, refetch };
   }
 
@@ -72,35 +60,25 @@ export function useFund(fundId: bigint | undefined) {
     description,
     createdAt,
     performanceFeeBps,
-    revealed,
-    strategySet,
+    allocationSet,
     depositorCount,
     shareFacade,
-  ] = metaResult.result as [
-    `0x${string}`, string, string,
-    bigint, bigint, boolean, boolean, bigint, `0x${string}`
+  ] = metaR.result as [
+    `0x${string}`, string, string, bigint, bigint, boolean, bigint, `0x${string}`
   ];
 
-  const revealedStrategy =
-    revealed && stratResult.status === "success" && stratResult.result
+  const allocationBps: AllocationPair =
+    allocR.status === "success" && allocR.result
       ? (() => {
-          const [wethBps, usdcBps] = stratResult.result as [bigint, bigint];
-          return {
-            wethBps: Number(wethBps),
-            usdcBps: Number(usdcBps),
-          };
+          const tuple = allocR.result as readonly bigint[];
+          return [Number(tuple[0]), Number(tuple[1])];
         })()
-      : null;
+      : [0, 0];
 
-  const performanceScoreBps =
-    revealed && scoreResult.status === "success" && scoreResult.result !== undefined
-      ? Number(scoreResult.result as bigint)
-      : null;
-
-  const startPriceEth =
-    startPriceResult.status === "success" && startPriceResult.result !== undefined
-      ? (startPriceResult.result as bigint)
-      : null;
+  const totalDeployed =
+    deployedR.status === "success" && deployedR.result !== undefined
+      ? (deployedR.result as bigint)
+      : 0n;
 
   const fund: FundDetail = {
     fundId: fundId!,
@@ -109,13 +87,11 @@ export function useFund(fundId: bigint | undefined) {
     description,
     createdAt,
     performanceFeeBps,
-    revealed,
-    strategySet,
+    allocationSet,
     depositorCount,
     shareFacade,
-    revealedStrategy,
-    performanceScoreBps,
-    startPriceEth,
+    allocationBps,
+    totalDeployed,
   };
 
   return { fund, isLoading, refetch };

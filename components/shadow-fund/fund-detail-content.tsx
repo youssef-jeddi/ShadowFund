@@ -10,11 +10,13 @@ import { useMyPosition } from "@/hooks/use-my-position";
 import { useRequestDeposit } from "@/hooks/use-request-deposit";
 import { useRequestRedeem } from "@/hooks/use-request-redeem";
 import { useClaimRedemption } from "@/hooks/use-claim-redemption";
+import { useSubVaultMetrics } from "@/hooks/use-subvault-metrics";
 import { truncateAddress } from "@/lib/utils";
+import { formatUnits } from "viem";
 import Link from "next/link";
 
-const ASSET_LABELS = ["WETH", "USDC"];
-const ASSET_COLORS = ["#6366f1", "#10b981"];
+const SLOT_LABELS = ["Aave USDC", "Fixed 8%"] as const;
+const SLOT_COLORS = ["#10b981", "#f59e0b"] as const;
 
 interface FundDetailContentProps {
   fundId: bigint;
@@ -24,6 +26,7 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
   const { address } = useAccount();
   const { fund, isLoading } = useFund(fundId);
   const { position, decrypting, decryptBalance, decryptError } = useMyPosition(fundId);
+  const { metrics } = useSubVaultMetrics(fundId);
   const depositHook = useRequestDeposit();
   const redeemHook = useRequestRedeem();
   const claimHook = useClaimRedemption();
@@ -55,20 +58,19 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
     );
   }
 
-  const scoreBps = fund.performanceScoreBps;
-  const scoreDisplay =
-    scoreBps !== null
-      ? `${(scoreBps / 100).toFixed(2)}%`
-      : null;
+  // Blended APY = allocationBps · apyBps / 10_000
+  const [aaveBps, fixedBps] = fund.allocationBps;
+  const blendedApyBps =
+    (aaveBps * metrics.apys[0] + fixedBps * metrics.apys[1]) / 10_000;
+  const blendedApyPct = (blendedApyBps / 100).toFixed(2);
+  const hasAllocation = fund.allocationSet;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      {/* Back link */}
       <Link href="/funds" className="text-sm text-text-muted hover:text-text-body">
         ← All Funds
       </Link>
 
-      {/* Fund header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-text-heading">{fund.name}</h1>
@@ -79,31 +81,26 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
             <p className="mt-2 text-text-body">{fund.description}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {fund.revealed ? (
-            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-medium text-emerald-400">
-              Revealed
-            </span>
-          ) : (
-            <span className="sf-sealed-badge rounded-full bg-surface px-3 py-1 text-sm font-medium"
-              style={{ WebkitTextFillColor: "var(--sf-sealed)" }}>
-              Sealed
-            </span>
-          )}
-        </div>
+        <span
+          className="shrink-0 rounded-full px-3 py-1 text-xs font-medium"
+          style={{
+            background: "var(--sf-violet-subtle)",
+            color: "var(--sf-violet-text)",
+          }}
+        >
+          Public strategy
+        </span>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: "Depositors", value: fund.depositorCount.toString() },
-          { label: "TVL", value: "Encrypted" },
+          { label: "Deployed", value: `${formatUnits(fund.totalDeployed, 6)} USDC` },
           { label: "Fee", value: `${(Number(fund.performanceFeeBps) / 100).toFixed(2)}%` },
           {
-            label: "Performance",
-            value: fund.revealed && scoreDisplay
-              ? scoreDisplay
-              : "Sealed",
+            label: "Blended APY",
+            value: hasAllocation ? `${blendedApyPct}%` : "—",
           },
         ].map(({ label, value }) => (
           <div
@@ -117,55 +114,27 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
         ))}
       </div>
 
-      {/* Revealed strategy */}
-      {fund.revealed && fund.revealedStrategy && (
+      {/* Public allocation */}
+      {hasAllocation && (
         <Card
           className="rounded-2xl border"
-          style={{ background: "var(--sf-reveal-bg)", borderColor: "var(--sf-violet-border)" }}
+          style={{ background: "var(--sf-card-bg)", borderColor: "var(--sf-card-border)" }}
         >
           <CardHeader className="px-5 pt-4 pb-0">
-            <div className="flex items-center gap-2">
-              <span>🔓</span>
-              <h3 className="text-sm font-semibold text-text-heading">Revealed Strategy</h3>
-            </div>
+            <h3 className="text-sm font-semibold text-text-heading">Fund Allocation</h3>
+            <p className="text-xs text-text-muted mt-0.5">
+              Fully transparent mix — only depositor positions are private.
+            </p>
           </CardHeader>
           <CardContent className="px-5 py-4">
-            <div className="flex flex-col gap-2">
-              {[
-                { label: ASSET_LABELS[0], bps: fund.revealedStrategy.wethBps, color: ASSET_COLORS[0] },
-                { label: ASSET_LABELS[1], bps: fund.revealedStrategy.usdcBps, color: ASSET_COLORS[1] },
-              ].map(({ label, bps, color }) => {
-                const pct = (bps / 100).toFixed(0);
-                return (
-                  <div key={label} className="flex items-center gap-3">
-                    <span className="w-10 text-xs font-medium" style={{ color }}>{label}</span>
-                    <div className="flex-1 rounded-full bg-surface" style={{ height: 8 }}>
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${pct}%`, background: color, opacity: 0.8 }}
-                      />
-                    </div>
-                    <span className="w-10 text-right text-xs font-bold text-text-body">{pct}%</span>
-                  </div>
-                );
-              })}
-            </div>
-            {isManager && (
-              <div className="mt-4">
-                <Link
-                  href={`/fund/${fundId}/reveal`}
-                  className="text-sm"
-                  style={{ color: "var(--sf-violet-text)" }}
-                >
-                  View full reveal & ChainGPT analysis →
-                </Link>
-              </div>
-            )}
+            <AllocationBars allocation={fund.allocationBps} apys={metrics.apys} />
           </CardContent>
         </Card>
       )}
 
-      {/* My position */}
+      {/* My position — encrypted shares only (sf shares). A dedicated
+           "Your Private Position" card on the depositor dashboard shows
+           decrypted deposited + yield via use-depositor-position. */}
       {address && (
         <Card
           className="rounded-2xl border"
@@ -234,7 +203,9 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
             {activeTab === "deposit" && (
               <div className="flex flex-col gap-3">
                 <p className="text-xs text-text-muted">
-                  Deposit cUSDC. Need some?{" "}
+                  Your deposit amount is encrypted end-to-end — the fund manager
+                  and other depositors cannot see how much you contributed. Need
+                  cUSDC?{" "}
                   <Link href="/dashboard" className="underline" style={{ color: "var(--sf-violet-text)" }}>
                     Wrap USDC here.
                   </Link>
@@ -302,7 +273,7 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
                 </Button>
                 {redeemHook.error && <p className="text-sm text-red-400">{redeemHook.error}</p>}
                 {redeemHook.step === "confirmed" && (
-                  <p className="text-sm text-emerald-400">Redeem submitted! If the fund had no capital in Aave, it settled atomically — otherwise the manager will process it after pulling liquidity.</p>
+                  <p className="text-sm text-emerald-400">Redeem submitted! If the fund had no capital deployed, it settled atomically — otherwise the manager will process it after pulling liquidity.</p>
                 )}
               </div>
             )}
@@ -331,23 +302,51 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
         </Card>
       )}
 
-      {/* Manager controls */}
       {isManager && (
         <div className="flex gap-2">
           <Button asChild variant="outline" className="flex-1">
             <Link href="/dashboard/manager">Manage Fund</Link>
           </Button>
-          {!fund.revealed && fund.strategySet && (
-            <Button
-              asChild
-              className="flex-1"
-              style={{ background: "var(--sf-violet)", color: "#fff" }}
-            >
-              <Link href={`/fund/${fundId}/reveal`}>Reveal Strategy</Link>
-            </Button>
-          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function AllocationBars({
+  allocation,
+  apys,
+}: {
+  allocation: [number, number];
+  apys?: [number, number];
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {SLOT_LABELS.map((label, i) => {
+        const pct = allocation[i] / 100;
+        const apyPct = apys ? (apys[i] / 100).toFixed(2) : null;
+        return (
+          <div key={label} className="flex items-center gap-3">
+            <span className="w-20 text-xs font-medium" style={{ color: SLOT_COLORS[i] }}>
+              {label}
+            </span>
+            <div className="flex-1 rounded-full bg-surface" style={{ height: 8 }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${pct}%`, background: SLOT_COLORS[i], opacity: 0.85 }}
+              />
+            </div>
+            <span className="w-12 text-right text-xs font-bold text-text-body">
+              {pct.toFixed(0)}%
+            </span>
+            {apyPct && (
+              <span className="w-16 text-right text-[10px] text-text-muted">
+                {apyPct}% APY
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

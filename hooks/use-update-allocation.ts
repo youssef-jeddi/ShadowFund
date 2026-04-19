@@ -1,28 +1,30 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { parseUnits } from "viem";
 import { useWriteContract, usePublicClient } from "wagmi";
 import { shadowFundVaultAbi } from "@/lib/shadow-fund-abi";
 import { CONTRACTS } from "@/lib/contracts";
 import { estimateGasOverrides } from "@/lib/gas";
 import { formatTransactionError } from "@/lib/utils";
 
-export type InitiateSupplyStep = "idle" | "writing" | "confirmed" | "error";
+export type UpdateAllocationStep = "idle" | "writing" | "confirmed" | "error";
 
-interface UseInitiateSupplyResult {
-  step: InitiateSupplyStep;
+interface UseUpdateAllocationResult {
+  step: UpdateAllocationStep;
   error: string | null;
   txHash: `0x${string}` | undefined;
-  /** amount is plaintext USDC (human-readable string, e.g. "100.5") */
-  initiateSupply: (fundId: bigint, amount: string) => Promise<boolean>;
+  /** Manager-only. Affects only future deployCapital slices; does not rebalance. */
+  updateAllocation: (
+    fundId: bigint,
+    newBps: readonly [number, number],
+  ) => Promise<boolean>;
   reset: () => void;
 }
 
-const USDC_DECIMALS = 6;
+const vaultAddress = CONTRACTS.SHADOW_FUND_VAULT as `0x${string}`;
 
-export function useInitiateSupply(): UseInitiateSupplyResult {
-  const [step, setStep] = useState<InitiateSupplyStep>("idle");
+export function useUpdateAllocation(): UseUpdateAllocationResult {
+  const [step, setStep] = useState<UpdateAllocationStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
@@ -36,26 +38,10 @@ export function useInitiateSupply(): UseInitiateSupplyResult {
     resetWrite();
   }, [resetWrite]);
 
-  const initiateSupply = useCallback(
-    async (fundId: bigint, amount: string): Promise<boolean> => {
-      if (!("SHADOW_FUND_VAULT" in CONTRACTS)) {
-        setError("ShadowFundVault not deployed yet");
-        setStep("error");
-        return false;
-      }
-
-      const vaultAddress = (CONTRACTS as Record<string, `0x${string}`>).SHADOW_FUND_VAULT;
-
-      let parsed: bigint;
-      try {
-        parsed = parseUnits(amount, USDC_DECIMALS);
-      } catch {
-        setError(`Invalid amount: ${amount}`);
-        setStep("error");
-        return false;
-      }
-      if (parsed === 0n) {
-        setError("Amount must be greater than zero");
+  const updateAllocation = useCallback(
+    async (fundId: bigint, newBps: readonly [number, number]): Promise<boolean> => {
+      if (newBps[0] + newBps[1] !== 10000) {
+        setError("Allocation must sum to 10000 bps (100%).");
         setStep("error");
         return false;
       }
@@ -68,8 +54,8 @@ export function useInitiateSupply(): UseInitiateSupplyResult {
         const hash = await writeContractAsync({
           address: vaultAddress,
           abi: shadowFundVaultAbi,
-          functionName: "initiateSupply",
-          args: [fundId, parsed],
+          functionName: "updateAllocation",
+          args: [fundId, [BigInt(newBps[0]), BigInt(newBps[1])] as const],
           ...gasOverrides,
         });
 
@@ -86,5 +72,5 @@ export function useInitiateSupply(): UseInitiateSupplyResult {
     [writeContractAsync, publicClient],
   );
 
-  return { step, error, txHash, initiateSupply, reset };
+  return { step, error, txHash, updateAllocation, reset };
 }

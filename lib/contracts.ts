@@ -17,10 +17,12 @@ export const CONTRACTS = {
   /** NoxCompute proxy — addViewer / isViewer */
   NOX_COMPUTE: "0xd464B198f06756a1d00be223634b85E0a731c229",
 
-  /** ShadowFund price oracle (Chainlink wrapper for ETH/BTC/LINK) */
-  PRICE_ORACLE: "0x90559D513936571DD353ce76eF53f03c0E2fC016",
-  /** ShadowFundVault — main confidential vault contract */
-  SHADOW_FUND_VAULT: "0xf564C0cb2Acca6cC8B25b153b8ce217fe944901d",
+  /** AaveUSDCVault — sub-vault supplying USDC to Aave v3 */
+  AAVE_USDC_VAULT: "0xfff39C5BCEf87623De00630bD9DB7bf5Be981546",
+  /** FixedYieldVault — sub-vault accruing fixed 8% APY from reward pool */
+  FIXED_YIELD_VAULT: "0xcaE8150313B69d4f8E0400fe1b4DB1022c08348d",
+  /** ShadowFundVault — meta-vault allocating across the 2 sub-vaults */
+  SHADOW_FUND_VAULT: "0x29C154427Bb65263A0aF43aAfa7b32c998e6d241",
 } as const;
 
 /** Null address — used to filter native tokens (ETH) in contract calls */

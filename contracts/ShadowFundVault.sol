@@ -3,53 +3,45 @@ pragma solidity ^0.8.28;
 
 import {Nox, euint256, externalEuint256, ebool} from "@iexec-nox/nox-protocol-contracts/contracts/sdk/Nox.sol";
 import {IERC7984Receiver} from "@iexec-nox/nox-confidential-contracts/contracts/interfaces/IERC7984Receiver.sol";
-import {PriceOracle} from "./PriceOracle.sol";
 import {ShadowFundShareToken} from "./ShadowFundShareToken.sol";
-import {IAavePool, IERC20Min} from "./IAavePool.sol";
+import {IERC20Min} from "./IAavePool.sol";
 import {AaveAddresses} from "./AaveAddresses.sol";
+import {ISubVault} from "./ISubVault.sol";
 
 /**
- * @title ShadowFundVault
- * @notice Confidential investment vault with real Aave v3 yield.
+ * @title ShadowFundVault — Input-Privacy Confidential Allocator
+ * @notice Confidential USDC yield vault. Depositor position sizes are encrypted
+ *         per-address (Nox euint256); manager allocation across sub-vaults is
+ *         fully public. Routes cUSDC across two ERC-4626 sub-vaults:
  *
- * Architecture:
- *   - Single vault contract; multi-fund state in mapping(fundId => Fund).
- *   - Each fund has an encrypted strategy (single `encryptedWethBps` — manager's
- *     claim about WETH vs USDC allocation in basis points), encrypted per-depositor
- *     share balances, encrypted pending requests.
- *   - Deposits are auto-minted inside the ERC-7984 receiver callback (no manager
- *     action required). Shares are minted 1:1 with the deposited cUSDC amount —
- *     simplification accepted for hackathon; redeem uses proper ERC-4626 math so
- *     Aave yield still flows to existing holders.
- *   - Redeem is hybrid: when `fundPrincipal == 0` the redeem settles atomically
- *     inside `requestRedeem` (vault holds enough liquid cUSDC). When
- *     `fundPrincipal > 0` (capital supplied to Aave) the redeem falls back to the
- *     ERC-7540 async path — manager calls `processRedeem` after pulling enough
- *     liquidity back from Aave, then user calls `claimRedemption`.
+ *           - AaveUSDCVault  (real Aave v3 USDC supply yield, variable ~4% APY)
+ *           - FixedYieldVault (deployer-seeded reward pool, fixed 8% APY)
  *
- * Real Aave v3 yield:
- *   - 100% of productive capital is supplied as plaintext USDC to Aave's USDC reserve.
- *     The `encryptedWethBps` is a *virtual* allocation — revealed at period end and
- *     used for an "allocation alpha vs 50/50 benchmark" score.
- *   - Supply flow (2 txs, manager-driven):
- *       1. initiateSupply(fundId, amount)
- *            → trivially-encrypts amount, calls cUSDC.unwrap(vault, vault, euint256).
- *              Burns vault's encrypted cUSDC, creates a pending unwrap request.
- *       2. off-chain: manager calls handleClient.publicDecrypt(handle) to get proof.
- *       3. finalizeSupply(fundId, decryptionProof)
- *            → cUSDC.finalizeUnwrap transfers plaintext USDC to vault,
- *              vault approves + Aave.supply. fundPrincipal += amount.
- *   - Withdraw flow (1 tx): Aave.withdraw → cUSDC.wrap → encrypted balance inflates
- *     by (principal + realized yield). Depositors benefit proportionally because
- *     their share count is unchanged but totalAssets grew.
- *   - Multi-fund yield attribution: proportional by `fundPrincipal / totalPrincipalSum`.
- *     Simplified for hackathon; imprecise with non-simultaneous supplies.
+ *         The privacy claim: a whale depositing $1M and a retail user depositing
+ *         $100 are indistinguishable on-chain in amount. Only the depositor's
+ *         own wallet can decrypt their shares and lifetime deposited handles via
+ *         the Nox handle client.
  *
- * Privacy model:
- *   - Strategy (wethBps) encrypted on-chain; revealed one-way via revealStrategy().
- *   - Individual share balances encrypted; only depositor can decrypt via Nox SDK.
- *   - `depositorCount` is plaintext. `fundPrincipal` is plaintext (Aave leg is public).
- *   - Encrypted `totalAssets` can be decrypted by the manager only.
+ * Core surfaces:
+ *   - Auto-deposit: ERC-7984 `confidentialTransferAndCall` fires
+ *     `onConfidentialTransferReceived` → mints 1:1 encrypted shares.
+ *   - Hybrid redeem: atomic fast-path when `_totalDeployed == 0`; ERC-7540-style
+ *     slow queue when capital is deployed (manager withdraws, processes, user claims).
+ *   - Bulk deploy: 2-step TEE unwrap. `deployCapital(amount)` unwraps encrypted
+ *     cUSDC aggregate → TEE cooldown → `finalizeDeployCapital` fans out plaintext
+ *     USDC to sub-vaults per public `allocationBps`.
+ *
+ * Privacy map:
+ *   - `shares[depositor]`    euint256, depositor-ACL'd
+ *   - `deposited[depositor]` euint256, depositor-ACL'd (cumulative lifetime gross)
+ *   - `totalAssets`          euint256, manager-ACL'd
+ *   - `totalShares`          euint256, manager-ACL'd
+ *   - `allocationBps[2]`     plaintext (everyone)
+ *   - `subVaultShares`       plaintext (everyone)
+ *
+ * Known simplification:
+ *   - `deposited` is lifetime gross, not cost-basis. UI yield display is
+ *     approximate for users with partial redeems. Documented in feedback.md.
  */
 
 interface ICUSDC {
@@ -58,7 +50,6 @@ interface ICUSDC {
         euint256 amount
     ) external returns (euint256);
 
-    // euint256 overload — no external proof; handle must already be ACL'd to msg.sender
     function unwrap(
         address from,
         address to,
@@ -78,37 +69,47 @@ contract ShadowFundVault is IERC7984Receiver {
 
     error NotManager();
     error FundNotFound();
-    error AlreadyRevealed();
-    error NotRevealed();
     error NoPendingRedeem();
     error NotImplemented();
     error OnlyCUSDC();
     error InvalidCallbackData();
-    error InvalidWethBps();
+    error InvalidAllocationSum();
+    error AllocationNotSet();
+    error AllocationUpdateBlockedByPendingDeploy();
     error ZeroAmount();
-    error SupplyAlreadyPending();
-    error NoPendingSupply();
-    error InsufficientFundAValue();
-    error AaveSupplyFailed();
-    error AaveWithdrawFailed();
+    error DeployAlreadyPending();
+    error NoPendingDeploy();
+    error InsufficientDeployed();
+    error SubVaultDepositFailed(uint256 vaultIdx);
+    error SubVaultWithdrawFailed(uint256 vaultIdx);
+    error BadArrayLength();
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    event FundCreated(uint256 indexed fundId, address indexed manager, string name, address shareFacade);
-    event StrategySet(uint256 indexed fundId);
-    event StrategyRevealed(uint256 indexed fundId, uint256 wethBps);
+    event FundCreated(
+        uint256 indexed fundId,
+        address indexed manager,
+        string name,
+        address shareFacade,
+        uint256 bps0,
+        uint256 bps1
+    );
+    event AllocationUpdated(uint256 indexed fundId, uint256 bps0, uint256 bps1);
     /// @dev Identity-free — only the fundId is logged. The cUSDC `Transfer` event at
-    ///      the ERC-7984 layer still reveals the sender's address; that is an
-    ///      unavoidable property of the token standard. Amounts remain encrypted.
+    ///      the ERC-7984 layer still reveals the sender's address.
     event Deposited(uint256 indexed fundId);
     event RedeemRequested(uint256 indexed fundId, address indexed user);
     event RedeemProcessed(uint256 indexed fundId, address indexed user);
     event RedeemClaimed(uint256 indexed fundId, address indexed user);
-    event SupplyInitiated(uint256 indexed fundId, uint256 amount);
-    event SuppliedToAave(uint256 indexed fundId, uint256 amount);
-    event WithdrawnFromAave(uint256 indexed fundId, uint256 amount);
+    event DeployInitiated(uint256 indexed fundId, uint256 amount);
+    event CapitalDeployed(uint256 indexed fundId, uint256 total, uint256 slice0, uint256 slice1);
+    event CapitalWithdrawn(uint256 indexed fundId, uint256 total, uint256 out0, uint256 out1);
 
     // ── State ─────────────────────────────────────────────────────────────────
+
+    uint256 public constant VAULT_COUNT = 2;
+    uint256 public constant AAVE_USDC_IDX = 0;
+    uint256 public constant FIXED_IDX = 1;
 
     struct Fund {
         address manager;
@@ -118,32 +119,25 @@ contract ShadowFundVault is IERC7984Receiver {
         uint256 performanceFeeBps;
         address shareTokenFacade;
 
-        // Encrypted strategy: WETH basis points (0-10000). USDC = 10000 - wethBps.
-        euint256 encryptedWethBps;
-        bool strategySet;
+        // Public allocation — sum must equal 10000.
+        uint256[VAULT_COUNT] allocationBps;
+        bool allocationSet;
 
-        // Reveal state
-        bool    revealed;
-        uint256 revealedWethBps;
-
-        // ETH price at fund creation (for post-reveal allocation alpha)
-        int256 startPriceEthE8;
-
-        // Encrypted aggregate state (manager has ACL)
-        euint256 totalAssets;  // encrypted cUSDC balance owned by this fund
+        // Encrypted aggregates (manager has ACL)
+        euint256 totalAssets;   // encrypted cUSDC currently held by the vault for this fund
         euint256 totalShares;
 
-        // Aave real-yield accounting (plaintext — Aave leg is public)
-        uint256 fundPrincipal;        // plaintext USDC currently supplied to Aave on this fund's behalf
-        uint256 pendingSupplyAmount;  // plaintext amount awaiting finalizeSupply
-        euint256 pendingUnwrapHandle; // handle from cUSDC.unwrap, consumed in finalizeSupply
+        // Pending deploy state (2-step TEE unwrap)
+        uint256 pendingDeployAmount;
+        euint256 pendingUnwrapHandle;
 
         // Public metadata
         uint256 depositorCount;
         mapping(address => bool) hasPosition;
 
-        // Per-user encrypted state
+        // Per-depositor encrypted state (depositor has ACL on their own handles)
         mapping(address => euint256) shares;
+        mapping(address => euint256) deposited;       // cumulative lifetime gross, never decremented
         mapping(address => euint256) pendingRedeem;
         mapping(address => bool)     hasPendingRedeem;
         mapping(address => bool)     claimable;
@@ -153,19 +147,21 @@ contract ShadowFundVault is IERC7984Receiver {
     mapping(uint256 => Fund) private funds;
     uint256 public nextFundId;
 
-    /// @notice Global sum of all fundPrincipals — denominator for proportional yield attribution.
-    uint256 public totalPrincipalSum;
+    /// @notice fundId → sub-vault index → shares held by this fund in that sub-vault.
+    mapping(uint256 => mapping(uint256 => uint256)) public subVaultShares;
 
     address public immutable cUSDC;
-    PriceOracle public immutable oracle;
+    address[VAULT_COUNT] public approvedVaults;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
-    constructor(address _cUSDC, address _oracle) {
-        require(_cUSDC  != address(0), "ShadowFundVault: zero cUSDC");
-        require(_oracle != address(0), "ShadowFundVault: zero oracle");
-        cUSDC  = _cUSDC;
-        oracle = PriceOracle(_oracle);
+    constructor(address _cUSDC, address[VAULT_COUNT] memory _approvedVaults) {
+        require(_cUSDC != address(0), "ShadowFundVault: zero cUSDC");
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            require(_approvedVaults[i] != address(0), "ShadowFundVault: zero sub-vault");
+        }
+        cUSDC = _cUSDC;
+        approvedVaults = _approvedVaults;
     }
 
     // ── Modifiers ─────────────────────────────────────────────────────────────
@@ -182,11 +178,23 @@ contract ShadowFundVault is IERC7984Receiver {
 
     // ── Fund creation ─────────────────────────────────────────────────────────
 
+    /**
+     * @notice Create a fund with a public allocation across sub-vaults.
+     * @param fundName          human-readable fund name
+     * @param description       short blurb
+     * @param perfFeeBps        performance fee (display only, not deducted)
+     * @param allocationBps_    [aaveUsdcBps, fixedBps], must sum to 10000
+     */
     function createFund(
         string calldata fundName,
         string calldata description,
-        uint256 perfFeeBps
+        uint256 perfFeeBps,
+        uint256[VAULT_COUNT] calldata allocationBps_
     ) external returns (uint256 fundId) {
+        uint256 sum;
+        for (uint256 i = 0; i < VAULT_COUNT; i++) sum += allocationBps_[i];
+        if (sum != 10_000) revert InvalidAllocationSum();
+
         fundId = nextFundId++;
         Fund storage f = funds[fundId];
 
@@ -196,11 +204,11 @@ contract ShadowFundVault is IERC7984Receiver {
         f.createdAt         = block.timestamp;
         f.performanceFeeBps = perfFeeBps;
 
-        // Snapshot ETH start price (USDC is always 1e8, no need to store)
-        int256[2] memory startPrices = oracle.getAllPrices();
-        f.startPriceEthE8 = startPrices[0];
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            f.allocationBps[i] = allocationBps_[i];
+        }
+        f.allocationSet = true;
 
-        // Initialise encrypted aggregates
         f.totalAssets = Nox.toEuint256(0);
         Nox.allowThis(f.totalAssets);
         Nox.allow(f.totalAssets, msg.sender);
@@ -209,7 +217,6 @@ contract ShadowFundVault is IERC7984Receiver {
         Nox.allowThis(f.totalShares);
         Nox.allow(f.totalShares, msg.sender);
 
-        // Deploy ERC-7984 share-token facade
         ShadowFundShareToken facade = new ShadowFundShareToken(
             address(this),
             fundId,
@@ -218,73 +225,34 @@ contract ShadowFundVault is IERC7984Receiver {
         );
         f.shareTokenFacade = address(facade);
 
-        emit FundCreated(fundId, msg.sender, fundName, address(facade));
-    }
-
-    // ── Strategy management ───────────────────────────────────────────────────
-
-    /**
-     * @notice Submit encrypted WETH allocation (basis points, 0-10000).
-     *         USDC leg is implicit: 10000 - wethBps.
-     *
-     * @dev Trust assumption: manager submits a value in [0, 10000]. Nox cannot
-     *      revert on an encrypted range check. The equality is auditable at reveal.
-     *
-     * @param fundId         Target fund.
-     * @param wethBpsHandle  encryptInput(value, "uint256", vaultAddress).handle
-     * @param proof          encryptInput(...).handleProof
-     */
-    function setStrategy(
-        uint256 fundId,
-        externalEuint256 wethBpsHandle,
-        bytes calldata proof
-    ) external onlyManager(fundId) fundExists(fundId) {
-        Fund storage f = funds[fundId];
-        if (f.revealed) revert AlreadyRevealed();
-
-        f.encryptedWethBps = Nox.fromExternal(wethBpsHandle, proof);
-        Nox.allowThis(f.encryptedWethBps);
-        Nox.allow(f.encryptedWethBps, msg.sender);
-
-        f.strategySet = true;
-        emit StrategySet(fundId);
+        emit FundCreated(fundId, msg.sender, fundName, address(facade), allocationBps_[0], allocationBps_[1]);
     }
 
     /**
-     * @notice Irreversibly reveal the strategy. Stores plaintext for scoring and
-     *         makes the encrypted handle publicly decryptable for auditability.
+     * @notice Update the public allocation. Affects only future `finalizeDeployCapital`
+     *         slices — does NOT rebalance already-deployed capital in sub-vaults.
+     *         Blocked while a deploy is mid-flight to prevent mid-tx slice drift.
      */
-    function revealStrategy(
+    function updateAllocation(
         uint256 fundId,
-        uint256 plaintextWethBps
+        uint256[VAULT_COUNT] calldata newBps
     ) external onlyManager(fundId) fundExists(fundId) {
-        if (plaintextWethBps > 10_000) revert InvalidWethBps();
         Fund storage f = funds[fundId];
-        if (f.revealed) revert AlreadyRevealed();
+        if (f.pendingDeployAmount != 0) revert AllocationUpdateBlockedByPendingDeploy();
 
-        f.revealedWethBps = plaintextWethBps;
-        f.revealed        = true;
+        uint256 sum;
+        for (uint256 i = 0; i < VAULT_COUNT; i++) sum += newBps[i];
+        if (sum != 10_000) revert InvalidAllocationSum();
 
-        if (f.strategySet) {
-            Nox.allowPublicDecryption(f.encryptedWethBps);
-            Nox.allowPublicDecryption(f.totalAssets);
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            f.allocationBps[i] = newBps[i];
         }
 
-        emit StrategyRevealed(fundId, plaintextWethBps);
+        emit AllocationUpdated(fundId, newBps[0], newBps[1]);
     }
 
     // ── Deposits (auto-mint via ERC-7984 receiver callback) ───────────────────
 
-    /**
-     * @notice ERC-7984 receiver callback. Depositor calls
-     *         `cUSDC.confidentialTransferAndCall(vault, handle, proof, abi.encode(fundId))`
-     *         and the cUSDC token forwards the already-ingested euint256 here.
-     *
-     * @dev Shares are minted 1:1 with the deposited cUSDC amount inside this
-     *      callback — no manager action required. The proportional ERC-4626
-     *      math happens at redeem time (see `_autoRedeem` / `processRedeem`),
-     *      so Aave yield still flows to existing holders when they exit.
-     */
     function onConfidentialTransferReceived(
         address /* operator */,
         address from,
@@ -302,12 +270,20 @@ contract ShadowFundVault is IERC7984Receiver {
         Nox.allow(amount, from);
 
         if (f.hasPosition[from]) {
-            euint256 updatedShares = Nox.add(f.shares[from], amount);
-            f.shares[from] = updatedShares;
-            Nox.allowThis(updatedShares);
-            Nox.allow(updatedShares, from);
+            // Update running shares balance
+            euint256 newShares = Nox.add(f.shares[from], amount);
+            f.shares[from] = newShares;
+            Nox.allowThis(newShares);
+            Nox.allow(newShares, from);
+
+            // Update lifetime deposited (never decremented)
+            euint256 newDeposited = Nox.add(f.deposited[from], amount);
+            f.deposited[from] = newDeposited;
+            Nox.allowThis(newDeposited);
+            Nox.allow(newDeposited, from);
         } else {
             f.shares[from] = amount;
+            f.deposited[from] = amount;
             f.hasPosition[from] = true;
             f.depositorCount++;
         }
@@ -326,17 +302,8 @@ contract ShadowFundVault is IERC7984Receiver {
         return Nox.toEbool(true);
     }
 
-    // ── Redemptions (hybrid: auto when liquid, async when supplied to Aave) ───
+    // ── Redemptions (hybrid: auto when liquid, async when capital deployed) ──
 
-    /**
-     * @notice Redeem shares. Takes the fast path (atomic auto-settle) when the
-     *         fund has no capital supplied to Aave, and falls back to the ERC-7540
-     *         async queue otherwise (so the manager can first pull liquidity back
-     *         from Aave, then call `processRedeem`).
-     *
-     * @dev Branching is on the plaintext `fundPrincipal` — this leaks nothing more
-     *      than the already-public Aave supply state.
-     */
     function requestRedeem(
         uint256 fundId,
         externalEuint256 shares,
@@ -348,13 +315,11 @@ contract ShadowFundVault is IERC7984Receiver {
         Nox.allowThis(shareAmt);
         Nox.allow(shareAmt, msg.sender);
 
-        if (f.fundPrincipal == 0) {
-            // Fast path — fund is fully liquid, settle atomically
+        if (_totalDeployed(fundId) == 0) {
             _autoRedeem(f, fundId, msg.sender, shareAmt);
             return;
         }
 
-        // Slow path — queue for the manager to process after pulling Aave liquidity
         if (f.hasPendingRedeem[msg.sender]) {
             euint256 newPending = Nox.add(f.pendingRedeem[msg.sender], shareAmt);
             f.pendingRedeem[msg.sender] = newPending;
@@ -368,32 +333,23 @@ contract ShadowFundVault is IERC7984Receiver {
         emit RedeemRequested(fundId, msg.sender);
     }
 
-    /**
-     * @dev ERC-4626 proportional burn-and-pay, all in the encrypted domain.
-     *      Used by both the fast-path `requestRedeem` and by `processRedeem`
-     *      (indirectly — the latter keeps its legacy two-step settle so the
-     *      existing claim UI still works).
-     */
     function _autoRedeem(
         Fund storage f,
         uint256 fundId,
         address user,
         euint256 shareAmt
     ) internal {
-        // payoutAssets = shareAmt × totalAssets / totalShares
         euint256 product = Nox.mul(shareAmt, f.totalAssets);
         Nox.allowThis(product);
         euint256 payoutAssets = Nox.div(product, f.totalShares);
         Nox.allowThis(payoutAssets);
         Nox.allow(payoutAssets, user);
 
-        // Burn user shares
         euint256 updatedUserShares = Nox.sub(f.shares[user], shareAmt);
         f.shares[user] = updatedUserShares;
         Nox.allowThis(updatedUserShares);
         Nox.allow(updatedUserShares, user);
 
-        // Decrement encrypted totals
         euint256 updatedTotalShares = Nox.sub(f.totalShares, shareAmt);
         f.totalShares = updatedTotalShares;
         Nox.allowThis(updatedTotalShares);
@@ -404,7 +360,6 @@ contract ShadowFundVault is IERC7984Receiver {
         Nox.allowThis(updatedAssets);
         Nox.allow(updatedAssets, f.manager);
 
-        // Atomically transfer cUSDC to user (vault holds full liquid supply)
         Nox.allowTransient(payoutAssets, cUSDC);
         ICUSDC(cUSDC).confidentialTransfer(user, payoutAssets);
 
@@ -417,30 +372,22 @@ contract ShadowFundVault is IERC7984Receiver {
 
         euint256 redeemShares = f.pendingRedeem[user];
 
-        // ERC-4626 math in the encrypted domain, BEFORE mutating totalShares:
-        //   payoutAssets = redeemShares × totalAssets / totalShares
-        // This makes each share worth a proportional slice of the fund's
-        // cUSDC, so any Aave yield re-wrapped into totalAssets flows to
-        // redeemers automatically.
         euint256 product = Nox.mul(redeemShares, f.totalAssets);
         Nox.allowThis(product);
         euint256 payoutAssets = Nox.div(product, f.totalShares);
         Nox.allowThis(payoutAssets);
         Nox.allow(payoutAssets, user);
 
-        // Burn user shares
         euint256 updatedUserShares = Nox.sub(f.shares[user], redeemShares);
         f.shares[user] = updatedUserShares;
         Nox.allowThis(updatedUserShares);
         Nox.allow(updatedUserShares, user);
 
-        // Decrement totalShares
         euint256 updatedTotalShares = Nox.sub(f.totalShares, redeemShares);
         f.totalShares = updatedTotalShares;
         Nox.allowThis(updatedTotalShares);
         Nox.allow(updatedTotalShares, f.manager);
 
-        // Deduct payout (not redeemShares) from totalAssets
         euint256 updatedAssets = Nox.sub(f.totalAssets, payoutAssets);
         f.totalAssets = updatedAssets;
         Nox.allowThis(updatedAssets);
@@ -472,45 +419,31 @@ contract ShadowFundVault is IERC7984Receiver {
         emit RedeemClaimed(fundId, msg.sender);
     }
 
-    // ── Aave v3 real-yield flow ───────────────────────────────────────────────
+    // ── Capital deployment (bulk fan-out to sub-vaults) ──────────────────────
 
     /**
-     * @notice Step 1 of 2 — initiate an unwrap of the fund's cUSDC to plaintext USDC.
-     *
-     * @dev Creates a trivially-encrypted handle for `plaintextAmount` and calls
-     *      cUSDC.unwrap(vault, vault, euint256) — this uses the euint256 overload
-     *      which requires the handle to be ACL'd to the caller (the vault), not a
-     *      user-provided external proof. No proof-binding issues.
-     *
-     *      The unwrap is split across two txs because cUSDC's finalizeUnwrap needs
-     *      a decryptionProof produced off-chain by the Nox gateway (handleClient.publicDecrypt),
-     *      mirroring the same pattern as hooks/use-unwrap.ts in the frontend.
-     *
-     *      Also decrements the fund's encrypted `totalAssets` by the plaintext amount
-     *      (via a trivially-encrypted sub) to keep the vault's accounting in sync
-     *      with cUSDC's balance.
+     * @notice Step 1 of 2 — initiate the cUSDC unwrap for a bulk deployment.
+     *         `finalizeDeployCapital` completes the deployment after the TEE cooldown.
      */
-    function initiateSupply(uint256 fundId, uint256 plaintextAmount)
+    function deployCapital(uint256 fundId, uint256 plaintextAmount)
         external
         onlyManager(fundId)
         fundExists(fundId)
     {
         if (plaintextAmount == 0) revert ZeroAmount();
         Fund storage f = funds[fundId];
-        if (f.pendingSupplyAmount != 0) revert SupplyAlreadyPending();
+        if (!f.allocationSet) revert AllocationNotSet();
+        if (f.pendingDeployAmount != 0) revert DeployAlreadyPending();
 
-        // Trivially-encrypt the plaintext amount (value is publicly known)
         euint256 amt = Nox.toEuint256(plaintextAmount);
         Nox.allowThis(amt);
         Nox.allowTransient(amt, cUSDC);
 
-        // Burn vault's cUSDC — returns the unwrap request handle
         euint256 unwrapHandle = ICUSDC(cUSDC).unwrap(address(this), address(this), amt);
 
-        f.pendingSupplyAmount  = plaintextAmount;
-        f.pendingUnwrapHandle  = unwrapHandle;
+        f.pendingDeployAmount = plaintextAmount;
+        f.pendingUnwrapHandle = unwrapHandle;
 
-        // Keep internal totalAssets in lock-step with cUSDC balance
         euint256 subAmt = Nox.toEuint256(plaintextAmount);
         Nox.allowThis(subAmt);
         euint256 newTotal = Nox.sub(f.totalAssets, subAmt);
@@ -518,101 +451,121 @@ contract ShadowFundVault is IERC7984Receiver {
         Nox.allowThis(newTotal);
         Nox.allow(newTotal, f.manager);
 
-        emit SupplyInitiated(fundId, plaintextAmount);
+        emit DeployInitiated(fundId, plaintextAmount);
     }
 
     /**
-     * @notice Step 2 of 2 — complete the unwrap and supply to Aave v3.
-     *
-     * @dev `decryptionProof` is fetched off-chain by the manager via
-     *      handleClient.publicDecrypt(handle). cUSDC.finalizeUnwrap transfers
-     *      the plaintext USDC to the vault, then the vault approves + calls
-     *      Aave.supply.
+     * @notice Step 2 of 2 — finalize the unwrap and fan plaintext USDC out to
+     *         the two sub-vaults per `allocationBps`. Last slice gets the
+     *         rounding remainder to avoid dust.
      */
-    function finalizeSupply(uint256 fundId, bytes calldata decryptionProof)
+    function finalizeDeployCapital(uint256 fundId, bytes calldata decryptionProof)
         external
         onlyManager(fundId)
         fundExists(fundId)
     {
         Fund storage f = funds[fundId];
-        uint256 amount = f.pendingSupplyAmount;
-        if (amount == 0) revert NoPendingSupply();
+        uint256 amount = f.pendingDeployAmount;
+        if (amount == 0) revert NoPendingDeploy();
 
         euint256 handle = f.pendingUnwrapHandle;
 
-        // Clear pending state before external calls (CEI)
-        f.pendingSupplyAmount = 0;
+        f.pendingDeployAmount = 0;
         f.pendingUnwrapHandle = Nox.toEuint256(0);
 
-        // Finalize unwrap — transfers plaintext USDC to this vault
         ICUSDC(cUSDC).finalizeUnwrap(handle, decryptionProof);
 
-        // Approve Aave pool and supply
-        IERC20Min(AaveAddresses.USDC).approve(AaveAddresses.POOL, amount);
-        try IAavePool(AaveAddresses.POOL).supply(AaveAddresses.USDC, amount, address(this), 0) {
-            // ok
-        } catch {
-            revert AaveSupplyFailed();
+        uint256[VAULT_COUNT] memory slices;
+        uint256 sliceSum;
+        for (uint256 i = 0; i < VAULT_COUNT - 1; i++) {
+            slices[i] = (amount * f.allocationBps[i]) / 10_000;
+            sliceSum += slices[i];
+        }
+        slices[VAULT_COUNT - 1] = amount - sliceSum;
+
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            if (slices[i] == 0) continue;
+            IERC20Min(AaveAddresses.USDC).approve(approvedVaults[i], slices[i]);
+            try ISubVault(approvedVaults[i]).deposit(slices[i], address(this)) returns (uint256 sharesMinted) {
+                subVaultShares[fundId][i] += sharesMinted;
+            } catch {
+                revert SubVaultDepositFailed(i);
+            }
         }
 
-        f.fundPrincipal    += amount;
-        totalPrincipalSum  += amount;
-
-        emit SuppliedToAave(fundId, amount);
+        emit CapitalDeployed(fundId, amount, slices[0], slices[1]);
     }
 
     /**
-     * @notice Withdraw USDC from Aave back to the vault and re-wrap as cUSDC.
-     *
-     * @dev Pro-rata cap: a fund can withdraw at most its share of the vault's
-     *      aUSDC balance (fundPrincipal / totalPrincipalSum × balance). Prevents
-     *      one manager draining another fund's yield.
-     *
-     *      Yield distribution: the plaintext amount withdrawn (which may exceed
-     *      `fundPrincipal` if interest accrued) is re-wrapped into cUSDC and added
-     *      to `f.totalAssets` via a trivially-encrypted add. Depositors benefit
-     *      proportionally because their share count is unchanged but totalAssets grew.
+     * @notice Pull `usdcAmount` USDC back from both sub-vaults proportional to
+     *         the fund's current exposure in each. Re-wraps as cUSDC so the
+     *         encrypted totalAssets grows — yield auto-accrues to share holders.
      */
-    function withdrawFromAave(uint256 fundId, uint256 plaintextAmount)
+    function withdrawCapital(uint256 fundId, uint256 usdcAmount)
         external
         onlyManager(fundId)
         fundExists(fundId)
     {
-        if (plaintextAmount == 0) revert ZeroAmount();
+        if (usdcAmount == 0) revert ZeroAmount();
         Fund storage f = funds[fundId];
 
-        uint256 aBal = IERC20Min(AaveAddresses.AUSDC).balanceOf(address(this));
-        uint256 fundAValue = totalPrincipalSum == 0
-            ? 0
-            : (f.fundPrincipal * aBal) / totalPrincipalSum;
-        if (plaintextAmount > fundAValue) revert InsufficientFundAValue();
+        uint256[VAULT_COUNT] memory values;
+        uint256 totalDeployed;
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            uint256 subShares = subVaultShares[fundId][i];
+            values[i] = subShares == 0 ? 0 : ISubVault(approvedVaults[i]).convertToAssets(subShares);
+            totalDeployed += values[i];
+        }
+        if (usdcAmount > totalDeployed) revert InsufficientDeployed();
 
-        // Withdraw from Aave — USDC lands in this vault
-        try IAavePool(AaveAddresses.POOL).withdraw(AaveAddresses.USDC, plaintextAmount, address(this)) returns (uint256) {
-            // ok
-        } catch {
-            revert AaveWithdrawFailed();
+        uint256[VAULT_COUNT] memory outs;
+        uint256 totalOut;
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            if (values[i] == 0) continue;
+            uint256 sharesToRedeem;
+            if (i == VAULT_COUNT - 1) {
+                // Last slot gets the remainder of `usdcAmount`.
+                uint256 targetOut = usdcAmount - totalOut;
+                if (targetOut == 0) break;
+                if (targetOut >= values[i]) {
+                    sharesToRedeem = subVaultShares[fundId][i];
+                } else {
+                    sharesToRedeem = (subVaultShares[fundId][i] * targetOut) / values[i];
+                }
+            } else {
+                sharesToRedeem = (subVaultShares[fundId][i] * usdcAmount) / totalDeployed;
+            }
+            if (sharesToRedeem == 0) continue;
+            try ISubVault(approvedVaults[i]).redeem(sharesToRedeem, address(this), address(this)) returns (uint256 assetsOut) {
+                outs[i] = assetsOut;
+                totalOut += assetsOut;
+                subVaultShares[fundId][i] -= sharesToRedeem;
+            } catch {
+                revert SubVaultWithdrawFailed(i);
+            }
         }
 
-        // Re-wrap plaintext USDC into cUSDC (vault becomes the holder)
-        IERC20Min(AaveAddresses.USDC).approve(cUSDC, plaintextAmount);
-        ICUSDC(cUSDC).wrap(address(this), plaintextAmount);
+        IERC20Min(AaveAddresses.USDC).approve(cUSDC, totalOut);
+        ICUSDC(cUSDC).wrap(address(this), totalOut);
 
-        // Add the re-wrapped amount to encrypted totalAssets (trivially encrypted)
-        euint256 addAmt = Nox.toEuint256(plaintextAmount);
+        euint256 addAmt = Nox.toEuint256(totalOut);
         Nox.allowThis(addAmt);
         euint256 newTotal = Nox.add(f.totalAssets, addAmt);
         f.totalAssets = newTotal;
         Nox.allowThis(newTotal);
         Nox.allow(newTotal, f.manager);
 
-        // Reduce principal by the withdrawn amount (capped at fundPrincipal).
-        // Any excess is realized yield.
-        uint256 reduce = plaintextAmount > f.fundPrincipal ? f.fundPrincipal : plaintextAmount;
-        f.fundPrincipal   -= reduce;
-        totalPrincipalSum -= reduce;
+        emit CapitalWithdrawn(fundId, totalOut, outs[0], outs[1]);
+    }
 
-        emit WithdrawnFromAave(fundId, plaintextAmount);
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    function _totalDeployed(uint256 fundId) internal view returns (uint256 total) {
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            uint256 subShares = subVaultShares[fundId][i];
+            if (subShares == 0) continue;
+            total += ISubVault(approvedVaults[i]).convertToAssets(subShares);
+        }
     }
 
     // ── ERC-7540 canonical stubs ──────────────────────────────────────────────
@@ -644,11 +597,6 @@ contract ShadowFundVault is IERC7984Receiver {
         return euint256.unwrap(funds[fundId].totalShares);
     }
 
-    /**
-     * @notice Encrypted total cUSDC held by the fund (including idle + Aave-earmarked).
-     *         Decryptable only by the fund manager — the ACL is re-granted on every
-     *         mutation (deposit, redeem, initiateSupply, withdrawFromAave).
-     */
     function getFundTotalAssets(uint256 fundId)
         external
         view
@@ -656,6 +604,17 @@ contract ShadowFundVault is IERC7984Receiver {
         returns (bytes32)
     {
         return euint256.unwrap(funds[fundId].totalAssets);
+    }
+
+    function getDepositorHandles(uint256 fundId, address user)
+        external
+        view
+        fundExists(fundId)
+        returns (bytes32 sharesHandle, bytes32 depositedHandle)
+    {
+        Fund storage f = funds[fundId];
+        sharesHandle = euint256.unwrap(f.shares[user]);
+        depositedHandle = euint256.unwrap(f.deposited[user]);
     }
 
     function getFundMetadata(uint256 fundId)
@@ -668,8 +627,7 @@ contract ShadowFundVault is IERC7984Receiver {
             string memory description,
             uint256 createdAt,
             uint256 performanceFeeBps,
-            bool revealed,
-            bool strategySet,
+            bool allocationSet,
             uint256 depositorCount,
             address shareFacade
         )
@@ -681,65 +639,67 @@ contract ShadowFundVault is IERC7984Receiver {
             f.description,
             f.createdAt,
             f.performanceFeeBps,
-            f.revealed,
-            f.strategySet,
+            f.allocationSet,
             f.depositorCount,
             f.shareTokenFacade
         );
     }
 
-    /**
-     * @notice Returns the revealed WETH bps. USDC bps is implicit (10000 - wethBps).
-     */
-    function getRevealedStrategy(uint256 fundId)
+    function getAllocation(uint256 fundId)
         external
         view
         fundExists(fundId)
-        returns (uint256 wethBps, uint256 usdcBps)
+        returns (uint256[VAULT_COUNT] memory)
     {
-        Fund storage f = funds[fundId];
-        if (!f.revealed) revert NotRevealed();
-        wethBps = f.revealedWethBps;
-        usdcBps = 10_000 - wethBps;
+        return funds[fundId].allocationBps;
     }
 
-    /**
-     * @notice Allocation Alpha vs 50/50 benchmark, in bps.
-     *
-     *         Pure ETH leg: wethBps × ((ethNow − ethStart) / ethStart)
-     *         USDC leg contributes 0 (USDC is pegged to $1).
-     *         Benchmark: 5000 × ((ethNow − ethStart) / ethStart)
-     *         Alpha = wethBps_return − benchmark_return
-     *
-     *         Positive = manager's allocation beat a 50/50 hold.
-     */
-    function getPerformanceScoreBps(uint256 fundId)
+    function getSubVaultShares(uint256 fundId)
         external
         view
         fundExists(fundId)
-        returns (int256 scoreBps)
+        returns (uint256[VAULT_COUNT] memory out)
     {
-        Fund storage f = funds[fundId];
-        if (!f.revealed) revert NotRevealed();
-        if (f.startPriceEthE8 <= 0) return 0;
-
-        int256 ethNow = oracle.getAllPrices()[0];
-        int256 priceDelta = ethNow - f.startPriceEthE8;
-
-        // return in bps for both the manager allocation and the 50/50 benchmark
-        int256 managerReturn   = (int256(f.revealedWethBps) * priceDelta * 100) / f.startPriceEthE8;
-        int256 benchmarkReturn = (int256(5_000)             * priceDelta * 100) / f.startPriceEthE8;
-
-        scoreBps = managerReturn - benchmarkReturn;
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            out[i] = subVaultShares[fundId][i];
+        }
     }
 
-    function getStartPriceEth(uint256 fundId)
+    function getFundTotalDeployed(uint256 fundId)
         external
         view
         fundExists(fundId)
-        returns (int256)
+        returns (uint256)
     {
-        return funds[fundId].startPriceEthE8;
+        return _totalDeployed(fundId);
+    }
+
+    function getSubVaultAPYs() external view returns (uint256[VAULT_COUNT] memory out) {
+        for (uint256 i = 0; i < VAULT_COUNT; i++) {
+            out[i] = ISubVault(approvedVaults[i]).getSupplyAPYBps();
+        }
+    }
+
+    function getApprovedVaults() external view returns (address[VAULT_COUNT] memory) {
+        return approvedVaults;
+    }
+
+    function getPendingDeployAmount(uint256 fundId)
+        external
+        view
+        fundExists(fundId)
+        returns (uint256)
+    {
+        return funds[fundId].pendingDeployAmount;
+    }
+
+    function getPendingUnwrapHandle(uint256 fundId)
+        external
+        view
+        fundExists(fundId)
+        returns (bytes32)
+    {
+        return euint256.unwrap(funds[fundId].pendingUnwrapHandle);
     }
 
     function hasPendingRedeem(uint256 fundId, address user) external view returns (bool) {
@@ -748,40 +708,5 @@ contract ShadowFundVault is IERC7984Receiver {
 
     function isClaimable(uint256 fundId, address user) external view returns (bool) {
         return funds[fundId].claimable[user];
-    }
-
-    // ── Aave yield views ──────────────────────────────────────────────────────
-
-    function getFundPrincipal(uint256 fundId) external view fundExists(fundId) returns (uint256) {
-        return funds[fundId].fundPrincipal;
-    }
-
-    function getFundAValue(uint256 fundId) external view fundExists(fundId) returns (uint256) {
-        if (totalPrincipalSum == 0) return 0;
-        uint256 aBal = IERC20Min(AaveAddresses.AUSDC).balanceOf(address(this));
-        return (funds[fundId].fundPrincipal * aBal) / totalPrincipalSum;
-    }
-
-    function getFundYield(uint256 fundId) external view fundExists(fundId) returns (int256) {
-        if (totalPrincipalSum == 0) return 0;
-        uint256 aBal = IERC20Min(AaveAddresses.AUSDC).balanceOf(address(this));
-        uint256 fundAValue = (funds[fundId].fundPrincipal * aBal) / totalPrincipalSum;
-        return int256(fundAValue) - int256(funds[fundId].fundPrincipal);
-    }
-
-    function getPendingSupplyAmount(uint256 fundId) external view fundExists(fundId) returns (uint256) {
-        return funds[fundId].pendingSupplyAmount;
-    }
-
-    function getPendingUnwrapHandle(uint256 fundId) external view fundExists(fundId) returns (bytes32) {
-        return euint256.unwrap(funds[fundId].pendingUnwrapHandle);
-    }
-
-    function getCurrentAaveApyBps() external view returns (uint256) {
-        return oracle.getAaveUsdcSupplyApyBps();
-    }
-
-    function getVaultAUsdcBalance() external view returns (uint256) {
-        return IERC20Min(AaveAddresses.AUSDC).balanceOf(address(this));
     }
 }

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { truncateAddress } from "@/lib/utils";
 import type { FundMetadata } from "@/hooks/use-fund-list";
 
+const SLOT_COLORS = ["#10b981", "#f59e0b"] as const;
+
 interface FundCardProps {
   fund: FundMetadata;
 }
@@ -19,6 +21,9 @@ function FundAge({ createdAt }: { createdAt: bigint }) {
 }
 
 export function FundCard({ fund }: FundCardProps) {
+  const [aaveBps, fixedBps] = fund.allocationBps;
+  const hasAllocation = fund.allocationSet && aaveBps + fixedBps > 0;
+
   return (
     <Card
       style={{
@@ -29,7 +34,6 @@ export function FundCard({ fund }: FundCardProps) {
     >
       <CardHeader className="px-5 pt-5 pb-0">
         <div className="flex items-start justify-between gap-2">
-          {/* Name + manager */}
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold text-text-heading">
               {fund.name}
@@ -39,78 +43,73 @@ export function FundCard({ fund }: FundCardProps) {
             </p>
           </div>
 
-          {/* Status badge */}
-          {fund.revealed ? (
-            <span className="shrink-0 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
-              Revealed
-            </span>
-          ) : (
-            <span
-              className="sf-sealed-badge shrink-0 rounded-full bg-surface px-2.5 py-0.5 text-xs font-medium"
-              style={{ WebkitTextFillColor: "var(--sf-sealed)" }}
-            >
-              Sealed
-            </span>
-          )}
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+            style={{
+              background: "var(--sf-violet-subtle)",
+              color: "var(--sf-violet-text)",
+            }}
+          >
+            Public strategy · Private positions
+          </span>
         </div>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-4 px-5 py-4">
-        {/* Description */}
         {fund.description && (
           <p className="line-clamp-2 text-sm text-text-body">{fund.description}</p>
         )}
 
-        {/* Stats row */}
         <div className="grid grid-cols-3 gap-2">
+          <Stat label="Age" value={<FundAge createdAt={fund.createdAt} />} />
+          <Stat label="Depositors" value={fund.depositorCount.toString()} />
           <Stat
-            label="Age"
-            value={<FundAge createdAt={fund.createdAt} />}
-          />
-          <Stat
-            label="Depositors"
-            value={fund.depositorCount.toString()}
-          />
-          <Stat
-            label="TVL"
+            label="Your balance"
             value={
               <span className="flex items-center gap-1">
                 <span
                   className="inline-block h-2.5 w-2.5 rounded-full"
                   style={{ background: "var(--sf-violet)" }}
                 />
-                Encrypted
+                Private
               </span>
             }
           />
         </div>
 
-        {/* Performance score (post-reveal only) */}
-        {fund.revealed ? (
-          <div
-            className="rounded-xl px-3 py-2 text-sm"
-            style={{
-              background: "var(--sf-reveal-bg)",
-              border: "1px solid var(--sf-violet-border)",
-            }}
-          >
-            <span className="text-text-muted">Performance: </span>
-            <span
-              className="font-semibold"
-              style={{ color: "var(--sf-violet-text)" }}
+        {/* 2-color mini allocation bar */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-text-muted">
+            Allocation (public)
+          </span>
+          {hasAllocation ? (
+            <div
+              className="flex h-2.5 w-full overflow-hidden rounded-full"
+              style={{ background: "var(--surface)" }}
             >
-              Score available
-            </span>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed px-3 py-2 text-sm"
-            style={{ borderColor: "var(--sf-violet-border)" }}>
-            <span className="text-text-muted">Strategy hidden — </span>
-            <span className="text-text-muted italic">waiting for reveal</span>
-          </div>
-        )}
+              <div
+                style={{ width: `${aaveBps / 100}%`, background: SLOT_COLORS[0] }}
+              />
+              <div
+                style={{ width: `${fixedBps / 100}%`, background: SLOT_COLORS[1] }}
+              />
+            </div>
+          ) : (
+            <div
+              className="rounded-full border border-dashed px-3 py-1 text-center text-[11px] text-text-muted"
+              style={{ borderColor: "var(--sf-card-border)" }}
+            >
+              Allocation not set
+            </div>
+          )}
+          {hasAllocation && (
+            <div className="flex justify-between text-[9px] text-text-muted">
+              <span>Aave USDC {(aaveBps / 100).toFixed(0)}%</span>
+              <span>Fixed 8% {(fixedBps / 100).toFixed(0)}%</span>
+            </div>
+          )}
+        </div>
 
-        {/* Fee */}
         <p className="text-xs text-text-muted">
           Performance fee:{" "}
           <span className="text-text-body">
@@ -118,7 +117,6 @@ export function FundCard({ fund }: FundCardProps) {
           </span>
         </p>
 
-        {/* Actions */}
         <div className="mt-auto flex gap-2">
           <Button
             asChild
