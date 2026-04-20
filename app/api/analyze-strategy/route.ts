@@ -26,6 +26,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(getFallbackAnalysis(body), { status: 200 });
     }
 
+    const systemInstruction =
+      "You are a DeFi fund analyst. Analyze a ShadowFund vault that allocates across 2 USDC-only sub-vaults (Aave v3 USDC supply, Fixed 8% reward pool). The manager's allocation mix is fully public on-chain; only individual depositor position sizes are encrypted (input privacy via iExec Nox). Return a JSON object with keys: summary, assetBreakdown, performanceInsights, riskAssessment. Each value is 2-3 sentences. Respond ONLY with valid JSON.";
+
     const cgRes = await fetch(CHAINGPT_API_URL, {
       method: "POST",
       headers: {
@@ -33,16 +36,9 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${CHAINGPT_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "chaingpt",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a DeFi fund analyst. Analyze a ShadowFund vault that allocates across 2 USDC-only sub-vaults (Aave v3 USDC supply, Fixed 8% reward pool). The manager's allocation mix is fully public on-chain; only individual depositor position sizes are encrypted (input privacy via iExec Nox). Return a JSON object with keys: summary, assetBreakdown, performanceInsights, riskAssessment. Each value is 2-3 sentences. Respond ONLY with valid JSON.",
-          },
-          { role: "user", content: prompt },
-        ],
-        stream: false,
+        model: "general_assistant",
+        question: `${systemInstruction}\n\n${prompt}`,
+        chatHistory: "off",
       }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -53,46 +49,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(getFallbackAnalysis(body), { status: 200 });
     }
 
-    let rawText: string;
+    const bodyText = await cgRes.text();
     const contentType = cgRes.headers.get("content-type") ?? "";
 
-    if (contentType.includes("text/event-stream")) {
-      const reader = cgRes.body?.getReader();
-      const decoder = new TextDecoder();
-      let accumulated = "";
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          accumulated += decoder.decode(value, { stream: true });
-        }
-      }
-      rawText = accumulated
+    let rawText = bodyText;
+    if (contentType.includes("text/event-stream") || bodyText.startsWith("data:")) {
+      rawText = bodyText
         .split("\n")
         .filter((l) => l.startsWith("data:"))
-        .map((l) => l.replace("data:", "").trim())
+        .map((l) => l.replace(/^data:\s*/, "").trim())
         .filter((l) => l && l !== "[DONE]")
         .join("");
-    } else {
-      const json = (await cgRes.json()) as {
-        choices?: Array<{ message?: { content?: string }; text?: string }>;
-        text?: string;
-      };
-      rawText =
-        json.choices?.[0]?.message?.content ??
-        json.choices?.[0]?.text ??
-        json.text ??
-        "";
+    } else if (contentType.includes("application/json")) {
+      try {
+        const json = JSON.parse(bodyText) as {
+          data?: { bot?: string };
+          bot?: string;
+          choices?: Array<{ message?: { content?: string }; text?: string }>;
+          text?: string;
+        };
+        rawText =
+          json.data?.bot ??
+          json.bot ??
+          json.choices?.[0]?.message?.content ??
+          json.choices?.[0]?.text ??
+          json.text ??
+          bodyText;
+      } catch {
+        rawText = bodyText;
+      }
     }
 
     let parsed: {
-      summary?: string;
-      assetBreakdown?: string;
-      performanceInsights?: string;
-      riskAssessment?: string;
+      summary?: unknown;
+      assetBreakdown?: unknown;
+      performanceInsights?: unknown;
+      riskAssessment?: unknown;
     } = {};
     try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      const stripped = rawText.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "");
+      const jsonMatch = stripped.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]) as typeof parsed;
       }
@@ -102,10 +98,10 @@ export async function POST(req: NextRequest) {
 
     const fallback = getFallbackAnalysis(body);
     return NextResponse.json({
-      summary: parsed.summary ?? (rawText.slice(0, 300) || fallback.summary),
-      assetBreakdown: parsed.assetBreakdown ?? fallback.assetBreakdown,
-      performanceInsights: parsed.performanceInsights ?? fallback.performanceInsights,
-      riskAssessment: parsed.riskAssessment ?? fallback.riskAssessment,
+      summary: coerceToString(parsed.summary) ?? (rawText.slice(0, 300) || fallback.summary),
+      assetBreakdown: coerceToString(parsed.assetBreakdown) ?? fallback.assetBreakdown,
+      performanceInsights: coerceToString(parsed.performanceInsights) ?? fallback.performanceInsights,
+      riskAssessment: coerceToString(parsed.riskAssessment) ?? fallback.riskAssessment,
       raw: rawText,
     });
   } catch (err) {
@@ -117,16 +113,33 @@ export async function POST(req: NextRequest) {
   }
 }
 
+function coerceToString(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map((x) => coerceToString(x) ?? "").filter(Boolean).join("\n");
+  if (typeof v === "object") {
+    return Object.entries(v as Record<string, unknown>)
+      .map(([k, val]) => `${k}: ${coerceToString(val) ?? ""}`)
+      .join("\n");
+  }
+  return undefined;
+}
+
 function fmtAllocation(pair: AllocationPair): string {
   return SLOT_LABELS.map((label, i) => `${label} ${(pair[i] / 100).toFixed(0)}%`).join(" / ");
 }
 
 function fmtApys(pair: AllocationPair): string {
-  return SLOT_LABELS.map((label, i) => `${label} ${pair[i].toFixed(2)}%`).join(" / ");
+  return SLOT_LABELS.map((label, i) => `${label} ${(pair[i] / 100).toFixed(2)}%`).join(" / ");
 }
 
 function blendedApyPct(allocation: AllocationPair, apys: AllocationPair): number {
-  return (allocation[0] * apys[0] + allocation[1] * apys[1]) / 10_000;
+  return (allocation[0] * apys[0] + allocation[1] * apys[1]) / 1_000_000;
+}
+
+function apyPct(bps: number): number {
+  return bps / 100;
 }
 
 function buildPrompt(body: AnalyzeBody): string {
@@ -141,7 +154,7 @@ function buildPrompt(body: AnalyzeBody): string {
   } = body;
 
   const blendedPct = blendedApyPct(allocationBps, subVaultAPYs).toFixed(2);
-  const allAavePct = subVaultAPYs[0].toFixed(2);
+  const allAavePct = apyPct(subVaultAPYs[0]).toFixed(2);
 
   return `
 Fund Name: ${fundName}
@@ -180,7 +193,7 @@ function getFallbackAnalysis(body: AnalyzeBody) {
   } = body;
 
   const blended = blendedApyPct(allocationBps, subVaultAPYs).toFixed(2);
-  const allAave = subVaultAPYs[0].toFixed(2);
+  const allAave = apyPct(subVaultAPYs[0]).toFixed(2);
   const alpha = (Number(blended) - Number(allAave)).toFixed(2);
   const fixedTilt = allocationBps[1] >= 5000;
 
