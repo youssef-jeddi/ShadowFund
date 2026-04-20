@@ -19,7 +19,6 @@ import {
   type StrategyAllocation,
 } from "@/components/shadow-fund/strategy-sliders";
 import { UpdateAllocationModal } from "@/components/shadow-fund/update-allocation-modal";
-import { ChainGptAnalysisPanel } from "@/components/shadow-fund/chaingpt-analysis-panel";
 import { useFundList } from "@/hooks/use-fund-list";
 import { useFund } from "@/hooks/use-fund";
 import { useCreateFund } from "@/hooks/use-create-fund";
@@ -27,7 +26,6 @@ import { useProcessRedeem } from "@/hooks/use-process-redeem";
 import { useDeployCapital } from "@/hooks/use-deploy-capital";
 import { useWithdrawCapital } from "@/hooks/use-withdraw-capital";
 import { useSubVaultMetrics } from "@/hooks/use-subvault-metrics";
-import { useChainGptAnalysis } from "@/hooks/use-chaingpt-analysis";
 import { truncateAddress } from "@/lib/utils";
 import type { FundMetadata } from "@/hooks/use-fund-list";
 
@@ -398,26 +396,10 @@ export function ManagerDashboardContent() {
 function ManagerFundSection({ fund }: { fund: FundMetadata }) {
   const { fund: detail } = useFund(fund.fundId);
   const { metrics } = useSubVaultMetrics(fund.fundId);
-  const chainGpt = useChainGptAnalysis();
 
   const [aaveBps, fixedBps] = fund.allocationBps;
   const blendedApyBps = (aaveBps * metrics.apys[0] + fixedBps * metrics.apys[1]) / 10_000;
   const blendedApyPct = (blendedApyBps / 100).toFixed(2);
-
-  const fundAgeHours = Math.floor((Date.now() / 1000 - Number(fund.createdAt)) / 3600);
-  const totalTvlUsdc = Number(formatUnits(detail?.totalDeployed ?? 0n, 6));
-
-  const runAnalyze = useCallback(() => {
-    chainGpt.analyze({
-      fundName: fund.name,
-      allocationBps: [aaveBps, fixedBps],
-      subVaultAPYs: metrics.apys,
-      totalDeployedUsdc: Number(formatUnits(metrics.totalDeployed, 6)),
-      totalTvlUsdc,
-      depositorCount: Number(fund.depositorCount),
-      fundAgeHours,
-    });
-  }, [chainGpt, fund.name, aaveBps, fixedBps, metrics.apys, metrics.totalDeployed, totalTvlUsdc, fund.depositorCount, fundAgeHours]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -478,13 +460,6 @@ function ManagerFundSection({ fund }: { fund: FundMetadata }) {
         {/* Right */}
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <FundInfoCard fund={fund} metrics={metrics} />
-          <ChainGptAnalysisPanel
-            analysis={chainGpt.analysis}
-            isLoading={chainGpt.isLoading}
-            error={chainGpt.error}
-            onAnalyze={runAnalyze}
-            vaultAddress={vaultAddress}
-          />
         </div>
       </div>
     </div>

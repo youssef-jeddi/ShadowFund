@@ -14,12 +14,14 @@ import { KV } from "@/components/shadow-fund/primitives/kv";
 import { Scramble } from "@/components/shadow-fund/primitives/scramble";
 import { Ticker } from "@/components/shadow-fund/primitives/ticker";
 import { AddressChip } from "@/components/shadow-fund/primitives/address-chip";
+import { ChainGptAnalysisPanel } from "@/components/shadow-fund/chaingpt-analysis-panel";
 import { useFund } from "@/hooks/use-fund";
 import { useMyPosition } from "@/hooks/use-my-position";
 import { useRequestDeposit } from "@/hooks/use-request-deposit";
 import { useRequestRedeem } from "@/hooks/use-request-redeem";
 import { useClaimRedemption } from "@/hooks/use-claim-redemption";
 import { useSubVaultMetrics } from "@/hooks/use-subvault-metrics";
+import { useChainGptAnalysis } from "@/hooks/use-chaingpt-analysis";
 
 interface FundDetailContentProps {
   fundId: bigint;
@@ -52,6 +54,7 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
   const depositHook = useRequestDeposit();
   const redeemHook = useRequestRedeem();
   const claimHook = useClaimRedemption();
+  const chainGpt = useChainGptAnalysis();
 
   const [depositAmount, setDepositAmount] = useState("");
   const [redeemAmount, setRedeemAmount] = useState("");
@@ -86,6 +89,20 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
   const strategyTag = `Aave ${aaveBps / 100}% · Fixed ${fixedBps / 100}%`;
 
   const balanceResolved = !decrypting && position.decryptedBalance !== null;
+
+  const fundAgeHours = Math.floor((Date.now() / 1000 - Number(fund.createdAt)) / 3600);
+  const deployedUsdc = Number(formatUnits(metrics.totalDeployed, 6));
+  const runAnalyze = () => {
+    chainGpt.analyze({
+      fundName: fund.name,
+      allocationBps: [aaveBps, fixedBps],
+      subVaultAPYs: metrics.apys,
+      totalDeployedUsdc: deployedUsdc,
+      totalTvlUsdc: deployedUsdc,
+      depositorCount: Number(fund.depositorCount),
+      fundAgeHours,
+    });
+  };
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto", padding: "32px 32px" }}>
@@ -279,6 +296,13 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
               </p>
             )}
           </SfCard>
+
+          <ChainGptAnalysisPanel
+            analysis={chainGpt.analysis}
+            isLoading={chainGpt.isLoading}
+            error={chainGpt.error}
+            onAnalyze={runAnalyze}
+          />
         </div>
 
         {/* Right */}

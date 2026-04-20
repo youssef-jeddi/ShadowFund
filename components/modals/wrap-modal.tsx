@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import { useWrapModal } from "./wrap-modal-provider";
 import { useTokenBalances } from "@/hooks/use-token-balances";
-import { useDevMode } from "@/hooks/use-dev-mode";
 import { useWrap } from "@/hooks/use-wrap";
 import { useUnwrap } from "@/hooks/use-unwrap";
 import { wrappableTokens as wrappableTokenConfigs } from "@/lib/tokens";
@@ -19,33 +18,10 @@ import { useEstimatedFee } from "@/hooks/use-estimated-fee";
 import { useDecryptBalance } from "@/hooks/use-decrypt-balance";
 import { useDropdown } from "@/hooks/use-dropdown";
 import { ProgressTracker, type ProgressStep } from "@/components/shared/step-indicator";
-import { CodeSection } from "@/components/shared/code-section";
 import { InfoCard } from "@/components/shared/info-card";
 import { ErrorMessage } from "@/components/shared/error-message";
 import { EncryptedBalance } from "@/components/shared/encrypted-balance";
 import { SfButton } from "@/components/shadow-fund/primitives/sf-button";
-
-const WRAP_CODE = `function wrap(address to, uint256 amount) public virtual override returns (euint256) {
-    // take ownership of the underlying tokens
-    SafeERC20.safeTransferFrom(IERC20(underlying()), msg.sender, address(this), amount - (amount % rate()));
-
-    // mint confidential tokens to recipient
-    euint256 wrappedAmountSent = _mint(to, Nox.toEuint256(amount / rate()));
-    Nox.allowTransient(wrappedAmountSent, msg.sender);
-    return wrappedAmountSent;
-}`;
-
-const UNWRAP_CODE = `// Step 1: Initiate unwrap with encrypted amount
-function unwrap(
-    address from, address to,
-    bytes32 encryptedAmount, bytes inputProof
-) external;
-
-// Step 2: Finalize unwrap — contract decrypts the amount on-chain
-function finalizeUnwrap(
-    euint256 unwrapAmount,
-    bytes decryptionProof
-) external;`;
 
 const WRAP_STEPS: ProgressStep[] = [
   { key: "approving", icon: "check_circle", label: "Approve" },
@@ -63,12 +39,11 @@ const UNWRAP_STEPS: ProgressStep[] = [
 export function WrapModal() {
   const { open, setOpen, activeTab, setActiveTab } = useWrapModal();
   const { balances } = useTokenBalances();
-  const { enabled: devMode } = useDevMode();
   const { step: wrapStep, error: wrapError, wrapTxHash, wrap, reset: resetWrap } = useWrap();
   const { step: unwrapStep, error: unwrapError, isFinalizeError, finalizeTxHash, unwrap, retryFinalize, reset: resetUnwrap } = useUnwrap();
   const { decryptedAmounts, decryptingSymbol, decrypt: handleDecryptBalance, getConfidentialDisplay } = useDecryptBalance();
   const { open: dropdownOpen, setOpen: setDropdownOpen, triggerRef, contentRef: dropdownRef } = useDropdown();
-  const [selectedSymbol, setSelectedSymbol] = useState("RLC");
+  const [selectedSymbol, setSelectedSymbol] = useState("USDC");
   const cSelectedSymbol = `c${selectedSymbol}`;
   const [amount, setAmount] = useState("");
   const isWrap = activeTab === "wrap";
@@ -488,12 +463,6 @@ export function WrapModal() {
             </button>
           </div>
         </div>
-
-        {devMode && (
-          <div style={{ marginTop: 16, minWidth: 0, maxWidth: "100%", overflow: "hidden" }}>
-            <CodeSection code={isWrap ? WRAP_CODE : UNWRAP_CODE} />
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );
