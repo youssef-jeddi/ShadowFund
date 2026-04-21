@@ -2,11 +2,11 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAppKitAccount } from "@reown/appkit/react";
+import { useAccount } from "wagmi";
 
 export function WalletGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isConnected, status } = useAppKitAccount();
+  const { isConnected, isConnecting, isReconnecting, status } = useAccount();
 
   useEffect(() => {
     if (status === "disconnected") {
@@ -14,6 +14,7 @@ export function WalletGuard({ children }: { children: React.ReactNode }) {
     }
   }, [status, router]);
 
+  if (isConnecting || isReconnecting) return null;
   if (!isConnected) return null;
 
   return <>{children}</>;

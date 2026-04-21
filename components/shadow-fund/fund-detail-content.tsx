@@ -429,6 +429,18 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
                         <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
                           Decrypt your balance first to know your shares.
                         </p>
+                        {metrics.totalDeployed === 0n ? (
+                          <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                            Capital is idle in this vault — your cUSDC will be sent back to your
+                            wallet in the same transaction.
+                          </p>
+                        ) : (
+                          <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                            Capital is currently deployed to strategies. Your redeem will be queued
+                            until the manager withdraws from the strategies — then you&apos;ll be able
+                            to claim your cUSDC from the Claim tab.
+                          </p>
+                        )}
                         <SfInput
                           type="number"
                           min={0}
@@ -456,9 +468,16 @@ export function FundDetailContent({ fundId }: FundDetailContentProps) {
                         {redeemHook.error && (
                           <div style={{ fontSize: 12, color: "var(--red)" }}>{redeemHook.error}</div>
                         )}
-                        {redeemHook.step === "confirmed" && (
-                          <div style={{ fontSize: 12, color: "var(--green)" }}>
-                            Redeem submitted — manager will process it.
+                        {redeemHook.step === "confirmed" && redeemHook.outcome === "auto" && (
+                          <div style={{ fontSize: 12, color: "var(--green)", lineHeight: 1.6 }}>
+                            Redeemed instantly — your cUSDC has been sent to your wallet.
+                          </div>
+                        )}
+                        {redeemHook.step === "confirmed" && redeemHook.outcome === "pending" && (
+                          <div style={{ fontSize: 12, color: "var(--pearl)", lineHeight: 1.6 }}>
+                            Redeem queued. The manager needs to withdraw from the strategies before
+                            your cUSDC can be released — you&apos;ll be able to claim it from the
+                            Claim tab once they do.
                           </div>
                         )}
                       </div>

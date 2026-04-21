@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { decodeEventLog } from "viem";
 import { shadowFundVaultAbi } from "@/lib/shadow-fund-abi";
 import { CONTRACTS } from "@/lib/contracts";
 import { estimateGasOverrides } from "@/lib/gas";
@@ -15,8 +16,15 @@ export type RequestRedeemStep =
   | "confirmed"
   | "error";
 
+/**
+ * `"auto"`   — fast path fired, cUSDC already delivered to the user.
+ * `"pending"` — queued; manager must call processRedeem before the user can claim.
+ */
+export type RequestRedeemOutcome = "auto" | "pending" | null;
+
 interface UseRequestRedeemResult {
   step: RequestRedeemStep;
+  outcome: RequestRedeemOutcome;
   error: string | null;
   txHash: `0x${string}` | undefined;
   requestRedeem: (fundId: bigint, sharesAmount: string) => Promise<boolean>;
@@ -29,6 +37,7 @@ const SHARE_DECIMALS = 6;
 export function useRequestRedeem(): UseRequestRedeemResult {
   const { address } = useAccount();
   const [step, setStep] = useState<RequestRedeemStep>("idle");
+  const [outcome, setOutcome] = useState<RequestRedeemOutcome>(null);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
@@ -38,6 +47,7 @@ export function useRequestRedeem(): UseRequestRedeemResult {
 
   const reset = useCallback(() => {
     setStep("idle");
+    setOutcome(null);
     setError(null);
     setTxHash(undefined);
     resetWrite();
@@ -87,7 +97,29 @@ export function useRequestRedeem(): UseRequestRedeemResult {
         });
 
         setTxHash(hash);
-        await publicClient!.waitForTransactionReceipt({ hash });
+        const receipt = await publicClient!.waitForTransactionReceipt({ hash });
+
+        let detected: RequestRedeemOutcome = "pending";
+        for (const log of receipt.logs) {
+          if (log.address.toLowerCase() !== vaultAddress.toLowerCase()) continue;
+          try {
+            const decoded = decodeEventLog({
+              abi: shadowFundVaultAbi,
+              data: log.data,
+              topics: log.topics,
+            });
+            if (decoded.eventName === "RedeemClaimed") {
+              detected = "auto";
+              break;
+            }
+            if (decoded.eventName === "RedeemRequested") {
+              detected = "pending";
+            }
+          } catch {
+            // Not a vault event, skip.
+          }
+        }
+        setOutcome(detected);
         setStep("confirmed");
         return true;
       } catch (err) {
@@ -99,5 +131,5 @@ export function useRequestRedeem(): UseRequestRedeemResult {
     [address, handleClient, writeContractAsync, publicClient],
   );
 
-  return { step, error, txHash, requestRedeem, reset };
+  return { step, outcome, error, txHash, requestRedeem, reset };
 }

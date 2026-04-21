@@ -23,6 +23,7 @@ import { useFundList } from "@/hooks/use-fund-list";
 import { useFund } from "@/hooks/use-fund";
 import { useCreateFund } from "@/hooks/use-create-fund";
 import { useProcessRedeem } from "@/hooks/use-process-redeem";
+import { usePendingRedeemers } from "@/hooks/use-pending-redeemers";
 import { useDeployCapital } from "@/hooks/use-deploy-capital";
 import { useWithdrawCapital } from "@/hooks/use-withdraw-capital";
 import { useSubVaultMetrics } from "@/hooks/use-subvault-metrics";
@@ -51,6 +52,11 @@ export function ManagerDashboardContent() {
   const [description, setDescription] = useState("");
   const [feeBps, setFeeBps] = useState("1000");
   const [newAllocation, setNewAllocation] = useState<StrategyAllocation>(DEFAULT_ALLOCATION);
+  const [selectedFundId, setSelectedFundId] = useState<bigint | null>(null);
+
+  const selectedFund = selectedFundId !== null
+    ? myFunds.find((f) => f.fundId === selectedFundId) ?? null
+    : null;
 
   const allocationValid = newAllocation.aaveUsdcBps + newAllocation.fixedBps === 10_000;
 
@@ -260,7 +266,7 @@ export function ManagerDashboardContent() {
               {createStep === 3 && (
                 <div>
                   <h3 className="display" style={{ fontSize: 28 }}>Review & deploy</h3>
-                  <div style={{ border: "1px solid var(--border)", marginTop: 20 }}>
+                  <div style={{ border: "1px solid var(--border)", marginTop: 20, padding: "4px 20px" }}>
                     <KV label="Name" value={fundName} />
                     <KV
                       label="Strategy"
@@ -363,7 +369,7 @@ export function ManagerDashboardContent() {
         </div>
       )}
 
-      {/* Fund list */}
+      {/* Fund list / detail */}
       <div style={{ marginTop: 48 }}>
         {isLoading ? (
           <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading funds…</div>
@@ -381,15 +387,126 @@ export function ManagerDashboardContent() {
               Create your first confidential fund above.
             </div>
           </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
-            {myFunds.map((fund) => (
-              <ManagerFundSection key={fund.fundId.toString()} fund={fund} />
-            ))}
+        ) : selectedFund ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            <SfButton variant="ghost" onClick={() => setSelectedFundId(null)}>
+              ← All vaults
+            </SfButton>
+            <ManagerFundSection fund={selectedFund} />
           </div>
+        ) : (
+          <ManagerFundList funds={myFunds} onSelect={setSelectedFundId} />
         )}
       </div>
     </div>
+  );
+}
+
+function ManagerFundList({
+  funds,
+  onSelect,
+}: {
+  funds: FundMetadata[];
+  onSelect: (id: bigint) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <div
+        className="eyebrow"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 2fr 1fr 0.8fr",
+          padding: "12px 20px",
+          borderBottom: "1px solid var(--border)",
+          color: "var(--text-muted)",
+        }}
+      >
+        <span>Vault</span>
+        <span>Strategy</span>
+        <span style={{ textAlign: "right" }}>Perf fee</span>
+        <span style={{ textAlign: "right" }}>Depositors</span>
+      </div>
+      {funds.map((fund) => (
+        <ManagerFundRow key={fund.fundId.toString()} fund={fund} onSelect={onSelect} />
+      ))}
+    </div>
+  );
+}
+
+function ManagerFundRow({
+  fund,
+  onSelect,
+}: {
+  fund: FundMetadata;
+  onSelect: (id: bigint) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const [aaveBps, fixedBps] = fund.allocationBps;
+  const strategy = fund.allocationSet
+    ? `Aave ${aaveBps / 100}% · Fixed ${fixedBps / 100}%`
+    : "— not set";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(fund.fundId)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "2fr 2fr 1fr 0.8fr",
+        alignItems: "center",
+        padding: "20px 20px",
+        borderBottom: "1px solid var(--border)",
+        background: hover ? "var(--surface-2)" : "var(--surface)",
+        cursor: "pointer",
+        border: "none",
+        borderRadius: 0,
+        textAlign: "left",
+        width: "100%",
+        position: "relative",
+        transition: "background 150ms",
+        color: "inherit",
+        fontFamily: "inherit",
+      }}
+    >
+      {hover && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 2,
+            background: "var(--pearl)",
+          }}
+        />
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 2,
+            flexShrink: 0,
+            background: "linear-gradient(135deg, var(--pearl), var(--pearl-deep))",
+          }}
+        />
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>{fund.name}</div>
+          <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+            Fund #{fund.fundId.toString()}
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 13, color: "var(--text-dim)" }}>{strategy}</div>
+      <div className="mono tabular" style={{ fontSize: 13, textAlign: "right" }}>
+        {(Number(fund.performanceFeeBps) / 100).toFixed(2)}%
+      </div>
+      <div className="mono tabular" style={{ fontSize: 13, textAlign: "right" }}>
+        {Number(fund.depositorCount)}
+      </div>
+    </button>
   );
 }
 
@@ -595,11 +712,11 @@ function FundActionsCard({
   const deployHook = useDeployCapital(fund.fundId);
   const withdrawHook = useWithdrawCapital();
   const processRedeem = useProcessRedeem();
+  const pendingRedeemers = usePendingRedeemers(fund.fundId);
 
   const [showAllocationModal, setShowAllocationModal] = useState(false);
   const [deployAmt, setDeployAmt] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState("");
-  const [processAddr, setProcessAddr] = useState("");
 
   const pendingAmt = deployHook.pendingAmount ?? 0n;
   const hasPending = pendingAmt > 0n;
@@ -750,30 +867,66 @@ function FundActionsCard({
 
         {/* Process Redeem */}
         <div>
-          <div className="eyebrow" style={{ marginBottom: 8 }}>Process Pending Redeem</div>
-          <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
-            Only needed when capital is deployed. Withdraw first.
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Process Pending Redeems</div>
+          <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12, lineHeight: 1.6 }}>
+            Release queued redemptions for depositors. Make sure enough capital has been withdrawn
+            from strategies to cover them.
           </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <SfInput
-              placeholder="User address (0x...)"
-              mono
-              value={processAddr}
-              onChange={(e) => setProcessAddr(e.target.value)}
-              disabled={processRedeem.step === "writing"}
-              style={{ flex: 1 }}
-            />
-            <SfButton
-              variant="secondary"
-              size="sm"
-              disabled={!processAddr || processRedeem.step === "writing"}
-              onClick={() => processRedeem.processRedeem(fund.fundId, processAddr as `0x${string}`)}
-            >
-              {processRedeem.step === "writing" ? "Processing…" : "Process"}
-            </SfButton>
-          </div>
+
+          {pendingRedeemers.isLoading && pendingRedeemers.pending.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Scanning for pending redeems…</div>
+          ) : pendingRedeemers.pending.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No pending redeems.</div>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  marginBottom: 12,
+                  padding: 10,
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  maxHeight: 140,
+                  overflowY: "auto",
+                }}
+              >
+                {pendingRedeemers.pending.map((addr) => (
+                  <div
+                    key={addr}
+                    className="mono"
+                    style={{ fontSize: 11, color: "var(--text-muted)" }}
+                  >
+                    {truncateAddress(addr)}
+                  </div>
+                ))}
+              </div>
+              <SfButton
+                variant="secondary"
+                size="sm"
+                disabled={processRedeem.step === "writing"}
+                onClick={() =>
+                  processRedeem.processAll(fund.fundId, pendingRedeemers.pending).then((ok) => {
+                    if (ok) pendingRedeemers.refetch();
+                  })
+                }
+                style={{ width: "100%" }}
+              >
+                {processRedeem.step === "writing"
+                  ? `Processing ${processRedeem.progress}/${processRedeem.total}…`
+                  : `Process all (${pendingRedeemers.pending.length})`}
+              </SfButton>
+            </>
+          )}
           {processRedeem.error && (
             <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>{processRedeem.error}</div>
+          )}
+          {processRedeem.step === "confirmed" && processRedeem.total > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--green)" }}>
+              Processed {processRedeem.total} redemption{processRedeem.total === 1 ? "" : "s"}.
+              Depositors can now claim.
+            </div>
           )}
         </div>
       </SfCard>
