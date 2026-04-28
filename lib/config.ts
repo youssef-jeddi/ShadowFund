@@ -1,6 +1,6 @@
 export const CONFIG = {
   urls: {
-    app: "https://cdefi.iex.ec",
+    app: "https://shadow-fund-tan.vercel.app",
     arbiscan: "https://sepolia.arbiscan.io",
     docs: "https://docs.iex.ec",
     github: "https://github.com/iExec-Nox",

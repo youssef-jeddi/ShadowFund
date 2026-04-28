@@ -26,36 +26,40 @@ const jetbrains = JetBrains_Mono({
   weight: ["400", "500"],
 });
 
+const SITE_TITLE = "ShadowFund — Confidential DeFi Vaults";
+const SITE_DESCRIPTION =
+  "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "ShadowFund — Confidential DeFi Vaults",
+    default: SITE_TITLE,
     template: "%s | ShadowFund",
   },
-  description:
-    "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.",
+  description: SITE_DESCRIPTION,
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
     url: APP_URL,
     siteName: "ShadowFund",
-    title: "ShadowFund — Confidential DeFi Vaults",
-    description:
-      "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
     images: [
       {
         url: "/og-image.png",
         width: 1200,
         height: 675,
-        alt: "ShadowFund",
+        alt: "ShadowFund — Confidential DeFi Vaults",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "ShadowFund — Confidential DeFi Vaults",
-    description:
-      "Confidential vault protocol. Managers publish their strategies openly. Depositor balances stay encrypted end-to-end via iExec Nox.",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
     images: ["/og-image.png"],
   },
   robots: {
