@@ -3,7 +3,8 @@
 Confidential investment vaults on Arbitrum. A whale depositing $1M and a retail user depositing $100 look **identical on-chain** — every depositor's amount, share balance, and yield are encrypted end-to-end via **iExec Nox**. The manager's strategy stays public, so depositors can vote with their capital without leaking their positions.
 
 🌐 **Live:** https://shadow-fund-tan.vercel.app
-🛠 Built for the iExec Vibe Coding Challenge — Confidential Vault track.
+
+🛠 Built for the iExec Vibe Coding Challenge.
 
 ---
 
